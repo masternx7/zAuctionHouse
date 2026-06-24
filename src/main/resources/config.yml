@@ -173,6 +173,37 @@ database-configuration:
   debug: false
 
 #=============================================================================
+# REDIS CONFIGURATION (Cross-Server Synchronization)
+#=============================================================================
+
+# Enable Redis for real-time cross-server auction synchronization.
+# When enabled, all servers sharing the same MySQL database will instantly
+# broadcast item events (listed, purchased, cancelled, expired) to each other
+# so that every server's in-memory state stays consistent with MySQL.
+#
+# Requirements:
+#   - storage-type must be MYSQL or MARIADB
+#   - All servers must point to the same Redis instance
+#   - All servers must have unique 'server-name' values
+#
+# Without Redis, items sold/cancelled on Server A will still appear as
+# "selling" on Server B until the server restarts (ghost listing bug).
+redis:
+  enabled: false
+
+  # Redis server address.
+  host: 127.0.0.1
+
+  # Redis server port (default: 6379).
+  port: 6379
+
+  # Redis password. Leave empty if no authentication is required.
+  password: ''
+
+  # Redis database index (0-15). Use different indexes to isolate environments.
+  database: 0
+
+#=============================================================================
 # MESSAGE COLOR SHORTCUTS
 #=============================================================================
 

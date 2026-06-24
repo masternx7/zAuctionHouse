@@ -173,6 +173,19 @@ database-configuration:
   debug: false
 
 #=============================================================================
+# REDIS (Synchronisation multi-serveur)
+#=============================================================================
+
+# Activer Redis pour synchroniser l'hôtel des ventes en temps réel entre serveurs.
+# Nécessite storage-type: MYSQL ou MARIADB.
+redis:
+  enabled: false
+  host: 127.0.0.1
+  port: 6379
+  password: ''
+  database: 0
+
+#=============================================================================
 # RACCOURCIS DE COULEURS POUR LES MESSAGES
 #=============================================================================
 

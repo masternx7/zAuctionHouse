@@ -24,6 +24,7 @@ import fr.maxlego08.zauctionhouse.api.storage.StorageManager;
 import fr.maxlego08.zauctionhouse.api.utils.Plugins;
 import fr.maxlego08.zauctionhouse.category.ZCategoryManager;
 import fr.maxlego08.zauctionhouse.cluster.LocalAuctionClusterBridge;
+import fr.maxlego08.zauctionhouse.cluster.RedisAuctionClusterBridge;
 import fr.maxlego08.zauctionhouse.command.ZCommandManager;
 import fr.maxlego08.zauctionhouse.command.commands.CommandAuction;
 import fr.maxlego08.zauctionhouse.configuration.MainConfiguration;
@@ -97,6 +98,7 @@ public class ZAuctionPlugin extends JavaPlugin implements AuctionPlugin {
     private boolean isEnabled = false;
     private PlatformScheduler platformScheduler;
     private AuctionClusterBridge auctionClusterBridge = new LocalAuctionClusterBridge();
+    private RedisAuctionClusterBridge redisClusterBridge = null;
     private OfflinePermission offlinePermission = new EmptyOfflinePermission();
 
     @Override
@@ -131,6 +133,8 @@ public class ZAuctionPlugin extends JavaPlugin implements AuctionPlugin {
         this.auctionManager.setupSortedItemsCache();
 
         if (!this.storageManager.onEnable()) return;
+
+        this.initRedisClusterBridge();
 
         this.registerDefaultMigrationProviders();
 
@@ -182,6 +186,11 @@ public class ZAuctionPlugin extends JavaPlugin implements AuctionPlugin {
         // Unregister version checker listener
         if (this.versionChecker != null) {
             this.versionChecker.unregister();
+        }
+
+        // Shutdown Redis bridge before stopping other services
+        if (this.redisClusterBridge != null) {
+            this.redisClusterBridge.shutdown();
         }
 
         // Shutdown the sorted items cache (closes ForkJoinPool)
@@ -330,6 +339,29 @@ public class ZAuctionPlugin extends JavaPlugin implements AuctionPlugin {
         if (isEnable(Plugins.EXECUTABLE_BLOCKS)) {
             this.ruleLoaderRegistry.registerExecutableBlocksLoader();
             this.getLogger().info("ExecutableBlocks rule loader registered.");
+        }
+    }
+
+    private void initRedisClusterBridge() {
+        var config = this.getConfig();
+        if (!config.getBoolean("redis.enabled", false)) {
+            this.getLogger().info("Redis is disabled. Using local (single-server) cluster bridge.");
+            return;
+        }
+
+        String host = config.getString("redis.host", "127.0.0.1");
+        int port = config.getInt("redis.port", 6379);
+        String password = config.getString("redis.password", "");
+        int database = config.getInt("redis.database", 0);
+        String serverName = config.getString("server-name", "default");
+
+        try {
+            this.redisClusterBridge = new RedisAuctionClusterBridge(this, host, port, password, database, serverName);
+            this.auctionClusterBridge = this.redisClusterBridge;
+            this.getLogger().info("Redis cluster bridge enabled. Cross-server sync is now active.");
+        } catch (Exception e) {
+            this.getLogger().severe("Failed to connect to Redis (" + host + ":" + port + "): " + e.getMessage());
+            this.getLogger().severe("Falling back to local (single-server) cluster bridge. Ghost listings may occur.");
         }
     }
 

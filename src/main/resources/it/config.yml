@@ -173,6 +173,19 @@ database-configuration:
   debug: false
 
 #=============================================================================
+# REDIS (Sincronizzazione multi-server)
+#=============================================================================
+
+# Abilita Redis per sincronizzare l'auction house in tempo reale tra i server.
+# Richiede storage-type: MYSQL o MARIADB.
+redis:
+  enabled: false
+  host: 127.0.0.1
+  port: 6379
+  password: ''
+  database: 0
+
+#=============================================================================
 # SCORCIATOIE DI COLORE PER I MESSAGGI
 #=============================================================================
 

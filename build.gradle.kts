@@ -70,6 +70,7 @@ allprojects {
         implementation("fr.maxlego08.sarah:sarah:1.23")
         implementation("com.tcoded:FoliaLib:0.5.1")
         implementation("fr.traqueur.currencies:currenciesapi:1.0.13")
+        implementation("redis.clients:jedis:5.2.0")
     }
 }
 
@@ -87,6 +88,8 @@ tasks {
         relocate("fr.maxlego08.sarah", "fr.maxlego08.zauctionhouse.libs.sarah")
         relocate("com.tcoded.folialib", "fr.maxlego08.zauctionhouse.libs.folialib")
         relocate("fr.traqueur.currencies", "fr.maxlego08.zauctionhouse.libs.currencies")
+        relocate("redis.clients.jedis", "fr.maxlego08.zauctionhouse.libs.jedis")
+        relocate("org.apache.commons.pool2", "fr.maxlego08.zauctionhouse.libs.pool2")
 
         rootProject.extra.properties["sha"]?.let { sha ->
             archiveClassifier.set("${rootProject.extra.properties["classifier"]}-${sha}")
