@@ -70,7 +70,9 @@ allprojects {
         implementation("fr.maxlego08.sarah:sarah:1.23")
         implementation("com.tcoded:FoliaLib:0.5.1")
         implementation("fr.traqueur.currencies:currenciesapi:1.0.13")
-        implementation("redis.clients:jedis:5.2.0")
+        implementation("redis.clients:jedis:5.2.0") {
+            exclude(group = "org.slf4j")
+        }
     }
 }
 
@@ -90,6 +92,11 @@ tasks {
         relocate("fr.traqueur.currencies", "fr.maxlego08.zauctionhouse.libs.currencies")
         relocate("redis.clients.jedis", "fr.maxlego08.zauctionhouse.libs.jedis")
         relocate("org.apache.commons.pool2", "fr.maxlego08.zauctionhouse.libs.pool2")
+
+        exclude("org/slf4j/**")
+        exclude("META-INF/maven/org.slf4j/**")
+
+        mergeServiceFiles()
 
         rootProject.extra.properties["sha"]?.let { sha ->
             archiveClassifier.set("${rootProject.extra.properties["classifier"]}-${sha}")
