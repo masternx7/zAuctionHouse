@@ -7,6 +7,7 @@ import fr.maxlego08.zauctionhouse.api.cluster.LockToken;
 import fr.maxlego08.zauctionhouse.api.item.Item;
 import fr.maxlego08.zauctionhouse.api.item.ItemStatus;
 import fr.maxlego08.zauctionhouse.api.item.StorageType;
+import fr.maxlego08.zauctionhouse.api.messages.Message;
 import org.bukkit.entity.Player;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -135,6 +136,36 @@ public class RedisAuctionClusterBridge implements AuctionClusterBridge {
             }
 
             case ITEM_BOUGHT -> {
+                // parts[2] = buyerName, parts[3] = formattedPrice (embedded in publishBought)
+                String buyerName = parts[2];
+                String formattedPrice = parts[3];
+
+                // Find the item in memory before removing it (need sellerUniqueId)
+                var listedItems = manager.getItems(StorageType.LISTED, item -> item.getId() == itemId);
+                if (!listedItems.isEmpty()) {
+                    var soldItem = listedItems.get(0);
+                    var sellerUniqueId = soldItem.getSellerUniqueId();
+                    var itemDisplay = soldItem.getItemDisplay();
+
+                    // Notify seller if they are online on this server
+                    plugin.getScheduler().runNextTick(task -> {
+                        var sellerOnline = plugin.getServer().getPlayer(sellerUniqueId);
+                        if (sellerOnline != null) {
+                            manager.message(sellerOnline, Message.ITEM_BOUGHT_SELLER,
+                                    "%buyer%", buyerName,
+                                    "%items%", itemDisplay,
+                                    "%price%", formattedPrice,
+                                    "%seller%", soldItem.getSellerName()
+                            );
+                            manager.clearPlayerCache(sellerOnline,
+                                    PlayerCacheKey.ITEMS_SELLING,
+                                    PlayerCacheKey.HISTORY_DATA,
+                                    PlayerCacheKey.PENDING_MONEY_DATA
+                            );
+                        }
+                    });
+                }
+
                 manager.removeItem(StorageType.LISTED, itemId);
                 manager.clearPlayersCache(
                         PlayerCacheKey.ITEMS_LISTED,
@@ -142,7 +173,7 @@ public class RedisAuctionClusterBridge implements AuctionClusterBridge {
                         PlayerCacheKey.ITEMS_SEARCH
                 );
                 manager.rebuildSortedItemsCache();
-                plugin.getLogger().info("[Redis] Item " + itemId + " removed from LISTED (bought on another server)");
+                plugin.getLogger().info("[Redis] Item " + itemId + " removed from LISTED (bought by " + buyerName + " on another server)");
             }
 
             case ITEM_REMOVED -> {
@@ -221,7 +252,9 @@ public class RedisAuctionClusterBridge implements AuctionClusterBridge {
 
     @Override
     public CompletableFuture<Void> notifyItemBought(Player player, Item item) {
-        return publish(Action.ITEM_BOUGHT, item.getId(), StorageType.LISTED, null, null, null);
+        String buyerName = player.getName();
+        String formattedPrice = item.getFormattedPrice();
+        return publishBought(item.getId(), buyerName, formattedPrice);
     }
 
     @Override
@@ -264,6 +297,22 @@ public class RedisAuctionClusterBridge implements AuctionClusterBridge {
                 jedis.publish(CHANNEL, msg);
             } catch (Exception e) {
                 plugin.getLogger().warning("[Redis] publish error for action " + action + ": " + e.getMessage());
+            }
+        }, plugin.getExecutorService());
+    }
+
+    private CompletableFuture<Void> publishBought(int itemId, String buyerName, String formattedPrice) {
+        return CompletableFuture.runAsync(() -> {
+            String msg = Action.ITEM_BOUGHT.name()
+                    + "|" + itemId
+                    + "|" + buyerName
+                    + "|" + formattedPrice
+                    + "|null|null"
+                    + "|" + serverId;
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.publish(CHANNEL, msg);
+            } catch (Exception e) {
+                plugin.getLogger().warning("[Redis] publish error for ITEM_BOUGHT: " + e.getMessage());
             }
         }, plugin.getExecutorService());
     }
