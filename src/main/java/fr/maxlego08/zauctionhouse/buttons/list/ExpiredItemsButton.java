@@ -26,7 +26,7 @@ public class ExpiredItemsButton extends PaginateButton {
 
         if (items.isEmpty()) {
             if (this.emptySlot == -1) return;
-            inventoryEngine.addItem(this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
+            inventoryEngine.addItem(isPlayerInventory(), this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
             return;
         }
 
@@ -35,7 +35,7 @@ public class ExpiredItemsButton extends PaginateButton {
         var needed = configuration.expiredPlaceholders();
 
         paginate(items, inventoryEngine, (slot, item) -> {
-            inventoryEngine.addItem(slot, item.buildItemStack(player, line, needed)).setClick(event -> {
+            inventoryEngine.addItem(isPlayerInventory(), slot, item.buildItemStack(player, line, needed)).setClick(event -> {
                 manager.getRemoveService().removeExpiredItem(player, item);
             });
         });

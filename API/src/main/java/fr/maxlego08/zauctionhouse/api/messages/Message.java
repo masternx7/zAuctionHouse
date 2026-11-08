@@ -53,10 +53,12 @@ public enum Message {
     SELL_ERROR_CHANGE("<error>The item in your hand has changed, sale cancelled."),
     SELL_ERROR_ECONOMY("<error>Unable to find the economy <white>%name%<error>."),
     SELL_ERROR_DEFAULT_ECONOMY("<error>No default economy is configured. Please contact an administrator."),
+    SELL_ERROR_INVALID_ITEM("<error>This item cannot be listed, its data could not be saved."),
     SELL_INVENTORY_EMPTY("<error>You must place items in the inventory before confirming."),
     SELL_INVENTORY_CANCELLED("<error>You cancelled the sale, your items have been returned."),
     SELL_ITEMS_CLEARED("<success>Selected items have been cleared."),
     SELL_ITEM_ADDED("<success>Item added to sale list."),
+    SELL_INVENTORY_FULL("<error>You cannot select more than <white>%max%<error> stacks."),
     SELL_ITEM_REMOVED("<success>Item removed from sale list."),
 
     ADMIN_TARGET_REQUIRED("<error>You must specify a valid target player."),
@@ -64,7 +66,9 @@ public enum Message {
     ADMIN_OPEN_INVENTORY("<success>Opening %type% items for <white>%target%<success>."),
     ADMIN_FORCEOPEN_INVENTORY("<success>Opening inventory <white>%inventory%<success> for <white>%target%<success> at page <white>%page%<success>."),
     ADMIN_OPEN_HISTORY("<success>Opening history for <white>%target%<success>."),
+    ADMIN_LISTING_REMOVED("<error>Your listing <white>%items%<error> was removed by an administrator."),
     ADMIN_ITEM_REMOVED("<success>You removed <white>%items%<success> from <white>%target%<success>."),
+    ADMIN_ITEM_NOT_AVAILABLE("<error>The item <white>%items%<error> is no longer available: it was sold, claimed or removed on another server."),
     ADMIN_ITEM_ADDED("<success>You added <white>%items%<success> to <white>%target%<success> in <white>%type%<success>."),
     ADMIN_ITEM_RETRIEVED("<success>Item(s) retrieved successfully."),
     ADMIN_NO_ITEM_TO_RETRIEVE("<error>No item to retrieve from this log entry."),
@@ -75,6 +79,7 @@ public enum Message {
     ITEM_REMOVE_EXPIRED("#e6fff3You just removed %items% #e6fff3from the expired items."),
     ITEM_REMOVE_PURCHASED("#e6fff3You just removed %items% #e6fff3from the purchased items."),
     ITEM_REMOVE_SELLING("#e6fff3You just removed %items% #e6fff3from your items."),
+    ITEM_NO_LONGER_AVAILABLE("<error>This item is no longer available, it has just been handled on another server."),
 
     ITEM_SOLD("#e6fff3You just sold %items% #e6fff3for #92bed8%price%#e6fff3."),
 
@@ -83,9 +88,11 @@ public enum Message {
 
     NOT_ENOUGH_MONEY("<error>You don’t have enough money to buy this."),
     NOT_ENOUGH_SPACE("<error>You don't have enough space in your inventory."),
+    PURCHASE_INVENTORY_FULL("<primary>Your inventory is full, the item has been placed in your purchased items."),
 
     PRICE_TOO_HIGH("<error>You cannot sell for more than <white>%max-price%<error>."),
     PRICE_TOO_LOW("<error>You cannot sell for less than <white>%min-price%<error>."),
+    PRICE_DECIMAL_NOT_ALLOWED("<error>You cannot list items for a price with decimals, please use a whole number."),
 
     LISTED_ITEMS_LIMIT("<error>You cannot sell more than <white>%max-items%<error> items<error>. &8(&7Did you set the zauctionhouse.<number in config.yml> ?&8)"),
     WORLD_BANNED("<error>You cannot sell items in this world."),
@@ -184,6 +191,7 @@ public enum Message {
     ADMIN_OPTION_LIST_HEADER("<primary>Options for <white>%player%<primary>:"),
 
     REMOVE_ALL_ITEMS("#e6fff3You have retrieved <white>%amount%<#e6fff3> item(s)."),
+    REMOVE_ALL_ITEMS_PARTIAL("<error>%amount% listing(s) could not be retrieved, please try again."),
 
     COMMAND_DESCRIPTION_AUCTION_ADMIN_LOGS("Manage auction logs"),
     COMMAND_DESCRIPTION_AUCTION_ADMIN_LOGS_PURGE("Delete logs older than X days"),
@@ -192,7 +200,9 @@ public enum Message {
     ADMIN_LOGS_PURGE_SUCCESS("<success>Deleted <white>%amount%<success> logs older than <white>%days%<success> days."),
     ADMIN_LOGS_PLAYER_SUCCESS("<success>Deleted <white>%amount%<success> logs for player <white>%player%<success>."),
     ADMIN_LOGS_CLEAR_MIGRATED_SUCCESS("<success>Deleted <white>%amount%<success> migrated V3 logs."),
-    ADMIN_LOGS_INVALID_DAYS("<error>Please specify a valid number of days (greater than 0).");
+    ADMIN_LOGS_INVALID_DAYS("<error>Please specify a valid number of days (greater than 0)."),
+
+    SERVER_SHUTTING_DOWN("<error>The server is shutting down, please try again later.");
 
     private AuctionPlugin plugin;
     private List<AuctionMessage> messages = new ArrayList<>();

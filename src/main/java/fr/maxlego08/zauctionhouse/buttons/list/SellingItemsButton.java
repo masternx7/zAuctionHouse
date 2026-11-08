@@ -27,7 +27,7 @@ public class SellingItemsButton extends PaginateButton {
 
         if (items.isEmpty()) {
             if (this.emptySlot == -1) return;
-            inventoryEngine.addItem(this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
+            inventoryEngine.addItem(isPlayerInventory(), this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
             return;
         }
 
@@ -39,7 +39,7 @@ public class SellingItemsButton extends PaginateButton {
 
         paginate(items, inventoryEngine, (slot, item) -> {
             boolean available = item.getStatus() == ItemStatus.AVAILABLE;
-            inventoryEngine.addItem(slot, item.buildItemStack(player, available ? line : linePurchased, available ? neededSelling : neededBeingPurchased)).setClick(event -> {
+            inventoryEngine.addItem(isPlayerInventory(), slot, item.buildItemStack(player, available ? line : linePurchased, available ? neededSelling : neededBeingPurchased)).setClick(event -> {
                 this.plugin.getAuctionManager().getRemoveService().removeSellingItem(player, item);
             });
         });

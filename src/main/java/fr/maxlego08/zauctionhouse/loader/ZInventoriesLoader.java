@@ -5,12 +5,12 @@ import fr.maxlego08.menu.api.InventoryManager;
 import fr.maxlego08.menu.api.exceptions.InventoryException;
 import fr.maxlego08.menu.api.loader.NoneLoader;
 import fr.maxlego08.menu.api.pattern.PatternManager;
+import fr.maxlego08.zauctionhouse.ZAuctionPlugin;
 import fr.maxlego08.zauctionhouse.api.AuctionPlugin;
 import fr.maxlego08.zauctionhouse.api.InventoriesLoader;
 import fr.maxlego08.zauctionhouse.api.inventories.Inventories;
 import fr.maxlego08.zauctionhouse.api.messages.Message;
-import fr.maxlego08.zauctionhouse.buttons.ItemContentButton;
-import fr.maxlego08.zauctionhouse.buttons.ShowButton;
+import fr.maxlego08.zauctionhouse.buttons.*;
 import fr.maxlego08.zauctionhouse.buttons.admin.*;
 import fr.maxlego08.zauctionhouse.buttons.admin.history.*;
 import fr.maxlego08.zauctionhouse.buttons.confirm.ConfirmPurchaseButton;
@@ -20,7 +20,6 @@ import fr.maxlego08.zauctionhouse.buttons.inventory.ExpiredInventoryButton;
 import fr.maxlego08.zauctionhouse.buttons.inventory.HistoryInventoryButton;
 import fr.maxlego08.zauctionhouse.buttons.inventory.PurchasedInventoryButton;
 import fr.maxlego08.zauctionhouse.buttons.inventory.SellingInventoryButton;
-import fr.maxlego08.zauctionhouse.buttons.list.CombinedItemsButton;
 import fr.maxlego08.zauctionhouse.buttons.list.ExpiredItemsButton;
 import fr.maxlego08.zauctionhouse.buttons.list.ListedItemsButton;
 import fr.maxlego08.zauctionhouse.buttons.list.PurchasedItemsButton;
@@ -28,15 +27,8 @@ import fr.maxlego08.zauctionhouse.buttons.list.SellingItemsButton;
 import fr.maxlego08.zauctionhouse.buttons.sell.SellCancelButton;
 import fr.maxlego08.zauctionhouse.buttons.sell.SellConfirmButton;
 import fr.maxlego08.zauctionhouse.buttons.sell.SellEconomyButton;
-import fr.maxlego08.zauctionhouse.buttons.SearchButton;
-import fr.maxlego08.zauctionhouse.buttons.ClearSearchButton;
-import fr.maxlego08.zauctionhouse.buttons.RemoveAllExpiredButton;
-import fr.maxlego08.zauctionhouse.buttons.RemoveAllPurchasedButton;
-import fr.maxlego08.zauctionhouse.buttons.RemoveAllSellingButton;
 import fr.maxlego08.zauctionhouse.buttons.shulker.ShulkerInfoButton;
-import fr.maxlego08.zauctionhouse.buttons.ClaimButton;
 import fr.maxlego08.zauctionhouse.buttons.shulker.ShulkerOpenButton;
-import fr.maxlego08.zauctionhouse.loader.buttons.CombinedItemsLoader;
 import fr.maxlego08.zauctionhouse.loader.buttons.*;
 import fr.maxlego08.zauctionhouse.loader.permissibles.CategoryPermissibleLoader;
 import fr.maxlego08.zauctionhouse.utils.PerformanceDebug;
@@ -81,6 +73,9 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
             createInventoriesFile();
         }
 
+        for (String name : new String[]{"admin-main", "admin-remove-confirm"}) {
+            if (!new File(folder, "admin/" + name + ".yml").exists()) copyFiles("inventories", "admin/" + name);
+        }
         files(folder, this::loadInventory);
     }
 
@@ -117,6 +112,15 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
     @Override
     public void loadButtons() {
 
+        // Remove loaders left behind by an older plugin instance during a hot reload.
+        this.buttonManager.getLoaders().stream()
+                .map(fr.maxlego08.menu.api.loader.ButtonLoader::getPlugin)
+                .filter(owner -> owner != this.plugin && !owner.isEnabled()
+                        && owner.getName().equals(this.plugin.getName()))
+                .distinct().toList().forEach(owner -> {
+                    this.buttonManager.unregisters(owner);
+                    this.inventoryManager.deleteInventories(owner);
+                });
         this.buttonManager.unregisters(this.plugin);
 
         // Permissibles
@@ -134,28 +138,35 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
         this.buttonManager.register(new NoneLoader(this.plugin, RemoveAllSellingButton.class, "ZAUCTIONHOUSE_REMOVE_ALL_SELLING"));
         this.buttonManager.register(new NoneLoader(this.plugin, RemoveAllPurchasedButton.class, "ZAUCTIONHOUSE_REMOVE_ALL_PURCHASED"));
 
-        this.buttonManager.register(new NoneLoader(this.plugin, ExpiredInventoryButton.class, "ZAUCTIONHOUSE_EXPIRED_INVENTORY"));
-        this.buttonManager.register(new NoneLoader(this.plugin, SellingInventoryButton.class, "ZAUCTIONHOUSE_SELLING_INVENTORY"));
-        this.buttonManager.register(new NoneLoader(this.plugin, PurchasedInventoryButton.class, "ZAUCTIONHOUSE_PURCHASED_INVENTORY"));
+        this.buttonManager.register(new InventoryButtonLoader(this.plugin, "ZAUCTIONHOUSE_EXPIRED_INVENTORY", ExpiredInventoryButton::new));
+        this.buttonManager.register(new InventoryButtonLoader(this.plugin, "ZAUCTIONHOUSE_SELLING_INVENTORY", SellingInventoryButton::new));
+        this.buttonManager.register(new InventoryButtonLoader(this.plugin, "ZAUCTIONHOUSE_PURCHASED_INVENTORY", PurchasedInventoryButton::new));
         this.buttonManager.register(new NoneLoader(this.plugin, HistoryInventoryButton.class, "ZAUCTIONHOUSE_HISTORY_INVENTORY"));
 
         this.buttonManager.register(new NoneLoader(this.plugin, ShowButton.class, "ZAUCTIONHOUSE_SHOW"));
         this.buttonManager.register(new NoneLoader(this.plugin, ConfirmRemoveListedButton.class, "ZAUCTIONHOUSE_CONFIRM_REMOVE_LISTED"));
         this.buttonManager.register(new NoneLoader(this.plugin, ConfirmPurchaseButton.class, "ZAUCTIONHOUSE_CONFIRM_PURCHASE"));
         this.buttonManager.register(new NoneLoader(this.plugin, SellCancelButton.class, "ZAUCTIONHOUSE_SELL_CANCEL"));
-        this.buttonManager.register(new NoneLoader(this.plugin, SellConfirmButton.class, "ZAUCTIONHOUSE_SELL_CONFIRM"));
-        this.buttonManager.register(new NoneLoader(this.plugin, SellEconomyButton.class, "ZAUCTIONHOUSE_SELL_ECONOMY"));
+        this.buttonManager.register(new SellEconomyOptionLoader(this.plugin, "ZAUCTIONHOUSE_SELL_CONFIRM", SellConfirmButton::new));
+        this.buttonManager.register(new SellEconomyOptionLoader(this.plugin, "ZAUCTIONHOUSE_SELL_ECONOMY", SellEconomyButton::new));
         this.buttonManager.register(new LoadingSlotLoader(this.plugin, HistoryItemsButton.class, "ZAUCTIONHOUSE_HISTORY_ITEMS"));
         this.buttonManager.register(new SellShowItemLoader(this.plugin));
         this.buttonManager.register(new SellPriceButtonLoader(this.plugin));
         this.buttonManager.register(new HistorySortLoader(this.plugin));
 
         // Admin
+        this.buttonManager.register(new NoneLoader(this.plugin, AdminMainButton.class, "ZAUCTIONHOUSE_ADMIN_MAIN"));
+        this.buttonManager.register(new NoneLoader(this.plugin, AdminPlayersButton.class, "ZAUCTIONHOUSE_ADMIN_PLAYERS"));
+        this.buttonManager.register(new NoneLoader(this.plugin, AdminPlayersSortButton.class, "ZAUCTIONHOUSE_ADMIN_PLAYERS_SORT"));
+        this.buttonManager.register(new NoneLoader(this.plugin, AdminRemoveConfirmButton.class, "ZAUCTIONHOUSE_ADMIN_REMOVE_CONFIRM"));
         this.buttonManager.register(new NoneLoader(this.plugin, AdminSellingItemsButton.class, "ZAUCTIONHOUSE_ADMIN_SELLING_ITEMS"));
         this.buttonManager.register(new NoneLoader(this.plugin, AdminExpiredItemsButton.class, "ZAUCTIONHOUSE_ADMIN_EXPIRED_ITEMS"));
         this.buttonManager.register(new NoneLoader(this.plugin, AdminPurchasedItemsButton.class, "ZAUCTIONHOUSE_ADMIN_PURCHASED_ITEMS"));
         this.buttonManager.register(new LoadingSlotLoader(this.plugin, AdminLogsButton.class, "ZAUCTIONHOUSE_ADMIN_LOGS"));
         this.buttonManager.register(new LoadingSlotLoader(this.plugin, AdminTransactionsButton.class, "ZAUCTIONHOUSE_ADMIN_TRANSACTIONS"));
+        this.buttonManager.register(new AdminRemoveOptionButtonLoader<>(this.plugin, AdminRemoveNotifyButton.class, "ZAUCTIONHOUSE_ADMIN_REMOVE_NOTIFY"));
+        this.buttonManager.register(new AdminRemoveOptionButtonLoader<>(this.plugin, AdminRemoveExpireButton.class, "ZAUCTIONHOUSE_ADMIN_REMOVE_EXPIRE"));
+        this.buttonManager.register(new AdminRemoveOptionButtonLoader<>(this.plugin, AdminRemoveCopyButton.class, "ZAUCTIONHOUSE_ADMIN_REMOVE_COPY"));
         this.buttonManager.register(new LogTypeFilterLoader(this.plugin));
         this.buttonManager.register(new LogDateFilterLoader(this.plugin));
         this.buttonManager.register(new TransactionStatusFilterLoader(this.plugin));
@@ -178,7 +189,7 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
         this.buttonManager.register(new ClaimButtonLoader(this.plugin, this.inventoryManager));
 
         // Search
-        this.buttonManager.register(new NoneLoader(this.plugin, SearchButton.class, "ZAUCTIONHOUSE_SEARCH"));
+        this.buttonManager.register(new SearchLoader(this.plugin));
         this.buttonManager.register(new NoneLoader(this.plugin, ClearSearchButton.class, "ZAUCTIONHOUSE_CLEAR_SEARCH"));
 
         // Options
@@ -202,6 +213,9 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
     @Override
     public void reload() {
 
+        if (this.plugin instanceof ZAuctionPlugin zAuctionPlugin && zAuctionPlugin.getChatSearchListener() != null) {
+            zAuctionPlugin.getChatSearchListener().reloadDialog();
+        }
         this.inventoryManager.deleteInventories(this.plugin);
         this.loadPatterns();
         this.loadInventories();
@@ -258,6 +272,11 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
 
     @Override
     public void openInventory(Player player, Inventories inventories, int page) {
+        this.openInventory(player, inventories, page, true);
+    }
+
+    @Override
+    public void openInventory(Player player, Inventories inventories, int page, boolean useOldInventories) {
         long start = this.performanceDebug.start();
 
         var optional = this.inventoryManager.getInventory(this.plugin, inventories.getFileName());
@@ -268,8 +287,12 @@ public class ZInventoriesLoader extends ZUtils implements InventoriesLoader {
         }
 
         var inventory = optional.get();
-        this.plugin.getScheduler().runAtEntity(player, w -> this.inventoryManager.openInventoryWithOldInventories(player, inventory, page));
+        this.plugin.getScheduler().runAtEntity(player, w -> {
+            if (useOldInventories) this.inventoryManager.openInventoryWithOldInventories(player, inventory, page);
+            else this.inventoryManager.openInventory(player, inventory, page);
+        });
 
         this.performanceDebug.end("openInventory." + inventories.getFileName(), start, "for=" + player.getName() + ", page=" + page);
+
     }
 }

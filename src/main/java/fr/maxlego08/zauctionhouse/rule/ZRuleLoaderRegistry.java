@@ -1,5 +1,6 @@
 package fr.maxlego08.zauctionhouse.rule;
 
+import fr.maxlego08.menu.api.utils.version.MinecraftVersion;
 import fr.maxlego08.zauctionhouse.api.AuctionPlugin;
 import fr.maxlego08.zauctionhouse.api.rules.Rule;
 import fr.maxlego08.zauctionhouse.api.rules.RuleConfigHelper;
@@ -45,6 +46,9 @@ public class ZRuleLoaderRegistry implements RuleLoaderRegistry {
         register(new LoreRuleLoader());
         register(new CustomModelDataRuleLoader());
         register(new AndRuleLoader(this));
+        if (MinecraftVersion.getCurrentVersion().isAtLeast(MinecraftVersion.parse("1.21.4"))) {
+            register(new ItemModelRuleLoader());
+        }
     }
 
     /**

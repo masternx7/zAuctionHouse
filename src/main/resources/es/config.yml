@@ -125,8 +125,28 @@ timezone: auto
 #             Ideal para: Configuraciones multi-servidor, grandes casas de subastas
 # - MARIADB : Servidor de base de datos MariaDB (compatible con MySQL)
 #             Ideal para: Configuraciones multi-servidor, grandes casas de subastas
-# Nota: Para la sincronizacion multi-servidor, usa MySQL/MariaDB con el addon Redis.
+# - POSTGRESQL : Servidor de base de datos PostgreSQL (tambien se acepta 'POSTGRES')
+#             Ideal para: Configuraciones multi-servidor, grandes casas de subastas
+# Nota: Para la sincronizacion multi-servidor, usa MySQL/MariaDB/PostgreSQL con el addon Redis.
+#
+# ADVERTENCIA: SQLITE es INCOMPATIBLE con el addon de cluster Redis.
+# Cada servidor mantendria su PROPIO archivo de base de datos, los identificadores de objetos
+# colisionarian entre servidores y los bloqueos del cluster no protegerian nada: los objetos
+# SERIAN duplicados.
+# Con el addon instalado, SQLITE ahora se rechaza: el addon se desactiva a si mismo y este
+# servidor permanece en modo servidor unico. Usa MYSQL, MARIADB o POSTGRESQL con una base COMPARTIDA.
 storage-type: SQLITE
+
+# Escribe un marcador de formato ("V2:" / "NBT:") al inicio de cada ItemStack serializado.
+# DESPLIEGUE EN DOS FASES - esta es la fase 2 del nuevo formato de serializacion de objetos:
+# - false (predeterminado): el plugin LEE ambos formatos pero ESCRIBE sin marcador, lo que
+#   permite volver a la version anterior sin perder ningun anuncio.
+# - true: cambia a true solo cuando TODOS los servidores de la red usen esta version o una
+#   posterior. Un servidor que siga en una version anterior no sabe leer un contenido con
+#   prefijo "V2:" y el anuncio seria ilegible para el.
+# Cuando todo el parque este actualizado, pon true: el formato pasa a estar en el propio dato
+# y no en la version de Minecraft del servidor que lo lee.
+write-itemstack-format-marker: false
 
 # Identificador del nombre del servidor para configuraciones multi-servidor.
 # Este nombre se almacena con cada anuncio para identificar de que servidor proviene.
@@ -134,8 +154,8 @@ storage-type: SQLITE
 # Recomendado: Usa un nombre unico y descriptivo (ej: "skyblock", "survival", "creative").
 server-name: skyblock
 
-# Ajustes de conexion para MySQL/MariaDB.
-# Usado solo cuando 'storage-type' es MYSQL o MARIADB.
+# Ajustes de conexion para MySQL/MariaDB/PostgreSQL.
+# Usado solo cuando 'storage-type' es MYSQL, MARIADB o POSTGRESQL.
 database-configuration:
   # Prefijo aplicado a todas las tablas creadas por el plugin.
   # Util para compartir una BD con otros plugins y evitar conflictos de nombres.
@@ -150,6 +170,7 @@ database-configuration:
 
   # Numero de puerto del servidor de base de datos.
   # Puerto predeterminado MySQL/MariaDB: 3306
+  # Puerto predeterminado PostgreSQL: 5432
   # Cambiar solo si tu BD usa un puerto no estandar.
   port: 3306
 
@@ -171,6 +192,11 @@ database-configuration:
   # ATENCION: Esto genera mucha salida. Activar solo para la resolucion de problemas de BD.
   # Recomendado: Mantener desactivado en produccion.
   debug: false
+
+  # Duracion maxima de una conexion MySQL, MariaDB o PostgreSQL del pool, en segundos.
+  # Una conexion mas antigua se retira y se reemplaza. 0 mantiene las conexiones hasta que se cierra el pool.
+  # Hikari exige al menos 30 segundos. 1800 son 30 minutos, el valor por defecto si se omite esta opcion.
+  max-lifetime: 1800
 
 #=============================================================================
 # REDIS (Sincronizacion multi-servidor)
@@ -427,6 +453,11 @@ number-sell-multiplication:
     - format: TR         # Septillones
       multiplication: 1000000000000000000000000000000000000000000
 
+# Si se establece en false, los jugadores no pueden poner objetos a la venta con
+# un precio que contenga decimales (p. ej. 10.5); solo se permiten números enteros.
+# Ponlo en true para permitir precios decimales.
+allow-decimal-prices: true
+
 #=============================================================================
 # AJUSTES DE CADUCIDAD
 #=============================================================================
@@ -504,6 +535,37 @@ expiration:
     default-expiration: 604800   # 1 semana
     permission:
       enable: false
+
+#=============================================================================
+# TAREAS DE MANTENIMIENTO
+#=============================================================================
+
+# Tareas de fondo periodicas que mantienen coherente la casa de subastas.
+# Son ligeras y acotadas; desactivarlas solo se recomienda para depuracion.
+
+maintenance:
+  # Frecuencia (en segundos) del barrido de los anuncios que han llegado a su fecha de
+  # caducidad. Sin esta tarea, un anuncio solo caduca si un jugador abre por casualidad una
+  # pestana que recorre la lista: puede seguir en venta mucho despues de su plazo.
+  # En multi-servidor cada objeto caduca bajo el bloqueo distribuido: varios servidores que
+  # ejecuten esta tarea no pueden caducar dos veces el mismo objeto.
+  # Pon 0 para desactivar.
+  expiration-sweep-interval-seconds: 60
+
+  # Numero maximo de anuncios procesados por pasada. Un atraso importante se reabsorbe
+  # progresivamente en varias pasadas en lugar de en una sola rafaga.
+  expiration-sweep-batch-size: 50
+
+  # Duracion (en segundos) tras la cual un objeto bloqueado en una pantalla de confirmacion
+  # (de compra o de retirada) vuelve a estar disponible.
+  # Es la red de seguridad para un jugador que se desconecta, muere o pierde su cache mientras
+  # una ventana de confirmacion esta abierta: sin ella el objeto queda congelado y no se puede
+  # comprar en ningun servidor de la red.
+  # Minimo 60 segundos. Pon 0 para desactivar.
+  confirmation-timeout-seconds: 60
+
+  # Frecuencia (en segundos) de verificacion de los estados de confirmacion caducados.
+  confirmation-sweep-interval-seconds: 10
 
 #=============================================================================
 # LIMITES DE ANUNCIOS
@@ -786,6 +848,14 @@ action:
   # Desactivar si se experimentan problemas de rendimiento con actualizaciones frecuentes.
   update-inventory-on-action: true
 
+  # Cuando esta activado, el perfil del vendedor se escribe en el disco inmediatamente despues de
+  # que sus objetos hayan salido de su inventario para ponerse en venta. Sin esto, un fallo del
+  # servidor entre la retirada de los objetos y el guardado periodico del perfil devuelve los
+  # objetos al jugador cuando ya estan en venta: duplicacion.
+  # Es una escritura de disco SINCRONA en cada puesta en venta: desactivarla en un servidor muy
+  # cargado, o si un plugin de sincronizacion de inventario ya gestiona la persistencia.
+  save-profile-on-sell: true
+
   # Cuando esta activado, el filtro de categoria se restablece cada vez que un jugador abre la casa de subastas.
   # Cuando esta desactivado, la categoria seleccionada anteriormente persiste entre aperturas.
   reset-category-on-open: true
@@ -793,6 +863,15 @@ action:
   # Cuando esta activado, el filtro de busqueda se restablece cada vez que un jugador abre la casa de subastas.
   # Cuando esta desactivado, la busqueda ingresada anteriormente persiste entre aperturas.
   reset-search-on-open: true
+
+  # Clic derecho sobre un anuncio que contiene una caja de shulker (u otro contenedor) para ver su
+  # contenido directamente, sin abrir la confirmacion de compra y sin tener suficiente dinero.
+  # La vista previa abre inventories/shulker-content.yml y no reserva el anuncio.
+  container-preview:
+    enable: true
+    # Tipo de clic que abre la vista previa: RIGHT, LEFT, SHIFT_RIGHT, SHIFT_LEFT, MIDDLE...
+    # Con LEFT, comprar un anuncio que contiene un contenedor solo es posible con otro clic.
+    click: RIGHT
 
   # Comportamiento durante la retirada de un objeto de los anuncios activos (el vendedor cancela la venta)
   remove-listed-item:
@@ -822,8 +901,9 @@ action:
     # Si es false, los objetos van a la seccion "objetos comprados" para la retirada posterior
     give-item: false
 
-    # Si give-item es true, esto verifica si el jugador tiene suficiente espacio en su inventario
-    # Si es false y no hay espacio disponible, la compra se bloquea
+    # Solo se usa si give-item es true
+    # Si es true, la compra se bloquea cuando el inventario del jugador está lleno
+    # Si es false, la compra se realiza y, si el objeto no cabe, se coloca en los "objetos comprados"
     player-inventory-must-have-free-space: true
 
     # Si es true, reabre el inventario de subastas despues de la compra

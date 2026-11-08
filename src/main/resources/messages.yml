@@ -120,6 +120,10 @@ sell-error-air: "<error>Are you stupid ? You can't sell air !"
 # Available placeholders: none
 sell-error-change: "<error>The item in your hand has changed, sale cancelled."
 
+# Shown when an item cannot be listed because its data could not be serialized.
+# Available placeholders: none
+sell-error-invalid-item: "<error>This item cannot be listed, its data could not be saved."
+
 # Shown when the specified economy provider doesn't exist.
 # Available placeholders:
 #   %name% - Economy name that was specified
@@ -144,6 +148,11 @@ sell-items-cleared: "<success>Selected items have been cleared."
 # Shown when an item is added to the sell list.
 # Available placeholders: none
 sell-item-added: "<success>Item added to sale list."
+
+# Shown when a player selects more stacks than the sell inventory can hold.
+# Available placeholders:
+#   %max% - Maximum number of stacks that can be selected
+sell-inventory-full: "<error>You cannot select more than <white>%max%<error> stacks."
 
 # Shown when an item is removed from the sell list.
 # Available placeholders: none
@@ -185,6 +194,12 @@ admin-open-history: "<success>Opening history for <white>%target%<success>."
 #   %items%  - Item description
 #   %target% - Target player name
 admin-item-removed: "<success>You removed <white>%items%<success> from <white>%target%<success>."
+
+# Shown when an admin action is refused because the item is no longer available
+# (locked by another server, sold, claimed or removed elsewhere).
+# Available placeholders:
+#   %items%  - Item description
+admin-item-not-available: "<error>The item <white>%items%<error> is no longer available: it was sold, claimed or removed on another server."
 
 # Shown when admin adds items to a player.
 # Available placeholders:
@@ -228,6 +243,9 @@ item-remove-purchased: "#e6fff3You just removed %items% #e6fff3from the purchase
 # Removing from selling (your items) inventory
 item-remove-selling: "#e6fff3You just removed %items% #e6fff3from your items."
 
+# Shown when the item disappeared before the action could complete (handled on another server)
+item-no-longer-available: "<error>This item is no longer available, it has just been handled on another server."
+
 #=============================================================================
 # TRANSACTION MESSAGES
 #=============================================================================
@@ -236,6 +254,8 @@ item-remove-selling: "#e6fff3You just removed %items% #e6fff3from your items."
 # Available placeholders:
 #   %items% - Item description
 #   %price% - Sale price
+#   %tax% - Tax taken on this sale (0 if none)
+#   %percentage% - Tax percentage (0 if none)
 item-sold: "#e6fff3You just sold %items% #e6fff3for #92bed8%price%#e6fff3."
 
 # Shown to seller when their item is purchased (if online).
@@ -255,6 +275,10 @@ item-bought-buyer: "#e6fff3You have just bought %items% #e6fff3for #92bed8%price
 # ERROR MESSAGES
 #=============================================================================
 
+# Shown when an action is refused because the server is shutting down.
+# Available placeholders: none
+server-shutting-down: "<error>The server is shutting down, please try again later."
+
 # Shown when player doesn't have enough money to purchase.
 # Available placeholders: none
 not-enough-money: "<error>You don't have enough money to buy this."
@@ -262,6 +286,7 @@ not-enough-money: "<error>You don't have enough money to buy this."
 # Shown when player's inventory is full (if space check is enabled).
 # Available placeholders: none
 not-enough-space: "<error>You don't have enough space in your inventory."
+purchase-inventory-full: "<primary>Your inventory is full, the item has been placed in your purchased items."
 
 # Shown when listing price exceeds the maximum allowed.
 # Available placeholders:
@@ -272,6 +297,10 @@ price-too-high: "<error>You cannot sell for more than <white>%max-price%<error>.
 # Available placeholders:
 #   %min-price% - Minimum required price
 price-too-low: "<error>You cannot sell for less than <white>%min-price%<error>."
+
+# Shown when a player tries to list an item for a price with decimals
+# while decimal prices are disabled (allow-decimal-prices: false in config.yml).
+price-decimal-not-allowed: "<error>You cannot list items for a price with decimals, please use a whole number."
 
 # Shown when player has reached their listing limit.
 # Available placeholders:
@@ -672,6 +701,11 @@ admin-option-list-header: "<primary>Options for <white>%player%<primary>:"
 #   %amount% - Number of items retrieved
 remove-all-items: "#e6fff3You have retrieved <white>%amount%<#e6fff3> item(s)."
 
+# Shown when some listings could not be retrieved during a bulk retrieval.
+# Available placeholders:
+#   %amount% - Number of listings that could not be retrieved
+remove-all-items-partial: "<error>%amount% listing(s) could not be retrieved, please try again."
+
 #=============================================================================
 # ADMIN LOGS MESSAGES
 #=============================================================================
@@ -700,3 +734,5 @@ admin-logs-clear-migrated-success: "<success>Deleted <white>%amount%<success> mi
 
 # Shown when an invalid number of days is provided.
 admin-logs-invalid-days: "<error>Please specify a valid number of days (greater than 0)."
+
+admin-listing-removed: "<error>Your listing <white>%items%<error> was removed by an administrator."

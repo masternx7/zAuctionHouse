@@ -125,8 +125,28 @@ timezone: auto
 #             Idéal pour: Configurations multi-serveurs, grands hôtels des ventes
 # - MARIADB : Serveur de base de données MariaDB (compatible MySQL)
 #             Idéal pour: Configurations multi-serveurs, grands hôtels des ventes
-# Note: Pour la synchronisation multi-serveur, utilisez MySQL/MariaDB avec l'addon Redis.
+# - POSTGRESQL : Serveur de base de données PostgreSQL ('POSTGRES' est aussi accepté)
+#             Idéal pour: Configurations multi-serveurs, grands hôtels des ventes
+# Note: Pour la synchronisation multi-serveur, utilisez MySQL/MariaDB/PostgreSQL avec l'addon Redis.
+#
+# ATTENTION: SQLITE est INCOMPATIBLE avec l'addon cluster Redis.
+# Chaque serveur garderait son PROPRE fichier de base de donnees, les identifiants d'items
+# entreraient en collision d'un serveur a l'autre et les verrous du cluster ne protegeraient
+# rien - les items SERAIENT dupliques.
+# Avec l'addon installe, SQLITE est desormais refuse: l'addon se desactive lui-meme et ce
+# serveur reste en mono-serveur. Utilisez MYSQL, MARIADB ou POSTGRESQL avec une base PARTAGEE.
 storage-type: SQLITE
+
+# Ecrit un marqueur de format ("V2:" / "NBT:") en tete de chaque ItemStack serialise.
+# DEPLOIEMENT EN DEUX PHASES - il s'agit ici de la phase 2 du nouveau format de serialisation:
+# - false (par defaut): le plugin LIT les deux formats mais ECRIT sans marqueur, ce qui permet
+#   de revenir a la version precedente sans perdre la moindre annonce.
+# - true: ne passez a true qu'une fois TOUS les serveurs du reseau migres vers cette version ou
+#   une plus recente. Un serveur reste en version anterieure ne sait pas lire une charge
+#   prefixee "V2:" et l'annonce deviendrait illisible pour lui.
+# Une fois tout le parc a jour, passez a true: le format est alors porte par la donnee et non
+# par la version Minecraft du serveur qui la relit.
+write-itemstack-format-marker: false
 
 # Identifiant du nom de serveur pour les configurations multi-serveurs.
 # Ce nom est stocké avec chaque annonce pour identifier de quel serveur elle provient.
@@ -134,8 +154,8 @@ storage-type: SQLITE
 # Recommandé: Utilisez un nom unique et descriptif (ex: "skyblock", "survival", "creative").
 server-name: skyblock
 
-# Paramètres de connexion pour MySQL/MariaDB.
-# Utilisé uniquement quand 'storage-type' est MYSQL ou MARIADB.
+# Paramètres de connexion pour MySQL/MariaDB/PostgreSQL.
+# Utilisé uniquement quand 'storage-type' est MYSQL, MARIADB ou POSTGRESQL.
 database-configuration:
   # Préfixe appliqué à toutes les tables créées par le plugin.
   # Utile pour partager une BDD avec d'autres plugins et éviter les conflits de noms.
@@ -150,6 +170,7 @@ database-configuration:
 
   # Numéro de port du serveur de base de données.
   # Port par défaut MySQL/MariaDB: 3306
+  # Port par défaut PostgreSQL: 5432
   # Ne changez que si votre BDD utilise un port non standard.
   port: 3306
 
@@ -171,6 +192,11 @@ database-configuration:
   # ATTENTION: Ceci génère beaucoup de sortie. Activez uniquement pour le dépannage de BDD.
   # Recommandé: Garder désactivé en production.
   debug: false
+
+  # Durée de vie maximale d'une connexion MySQL, MariaDB ou PostgreSQL du pool, en secondes.
+  # Une connexion plus ancienne est retirée et remplacée. 0 garde les connexions jusqu'à la fermeture du pool.
+  # Hikari exige au moins 30 secondes. 1800 correspond à 30 minutes, la valeur par défaut si l'option est absente.
+  max-lifetime: 1800
 
 #=============================================================================
 # REDIS (Synchronisation multi-serveur)
@@ -426,6 +452,11 @@ number-sell-multiplication:
     - format: TR         # Septillion
       multiplication: 1000000000000000000000000000000000000000000
 
+# Si défini sur false, les joueurs ne peuvent pas mettre en vente un objet à un
+# prix contenant des décimales (par ex. 10.5) ; seuls les nombres entiers sont autorisés.
+# Mettez true pour autoriser les prix décimaux.
+allow-decimal-prices: true
+
 #=============================================================================
 # PARAMÈTRES D'EXPIRATION
 #=============================================================================
@@ -503,6 +534,37 @@ expiration:
     default-expiration: 604800   # 1 semaine
     permission:
       enable: false
+
+#=============================================================================
+# TACHES DE MAINTENANCE
+#=============================================================================
+
+# Taches de fond periodiques qui maintiennent l'hotel des ventes coherent.
+# Elles sont peu couteuses et bornees; les desactiver n'est conseille que pour du debogage.
+
+maintenance:
+  # Frequence (en secondes) du balayage des annonces arrivees a leur date d'expiration.
+  # Sans cette tache, une annonce n'expire que si un joueur ouvre par hasard un onglet qui
+  # parcourt la liste: elle peut donc rester en vente longtemps apres son echeance.
+  # En multi-serveurs chaque item est expire sous le verrou distribue: plusieurs serveurs
+  # executant cette tache ne peuvent pas expirer deux fois le meme item.
+  # Mettre 0 pour desactiver.
+  expiration-sweep-interval-seconds: 60
+
+  # Nombre maximum d'annonces traitees par passage. Un arriere important est resorbe
+  # progressivement sur plusieurs passages plutot qu'en une seule rafale.
+  expiration-sweep-batch-size: 50
+
+  # Duree (en secondes) au-dela de laquelle un item bloque dans un ecran de confirmation
+  # (achat ou retrait) est rendu disponible.
+  # C'est le filet de securite pour un joueur qui se deconnecte, meurt ou perd son cache
+  # pendant qu'une fenetre de confirmation est ouverte: sans lui l'item reste gele et
+  # inachetable sur tous les serveurs du reseau.
+  # Minimum 60 secondes. Mettre 0 pour desactiver.
+  confirmation-timeout-seconds: 60
+
+  # Frequence (en secondes) de verification des statuts de confirmation perimes.
+  confirmation-sweep-interval-seconds: 10
 
 #=============================================================================
 # LIMITES D'ANNONCES
@@ -785,6 +847,14 @@ action:
   # Désactiver si vous rencontrez des problèmes de performance avec des mises à jour fréquentes.
   update-inventory-on-action: true
 
+  # Quand activé, le profil du vendeur est écrit sur le disque immédiatement après que ses items
+  # ont quitté son inventaire pour être mis en vente. Sans cela, un crash du serveur entre le
+  # retrait des items et la sauvegarde périodique du profil rend les items au joueur alors qu'ils
+  # sont déjà en vente : duplication.
+  # C'est une écriture disque SYNCHRONE à chaque mise en vente : la désactiver sur un serveur très
+  # chargé, ou si un plugin de synchronisation d'inventaire gère déjà la persistance.
+  save-profile-on-sell: true
+
   # Quand activé, le filtre de catégorie est réinitialisé à chaque ouverture de l'hôtel des ventes.
   # Quand désactivé, la catégorie précédemment sélectionnée persiste entre les ouvertures.
   reset-category-on-open: true
@@ -792,6 +862,15 @@ action:
   # Quand activé, le filtre de recherche est réinitialisé à chaque ouverture de l'hôtel des ventes.
   # Quand désactivé, la recherche précédemment saisie persiste entre les ouvertures.
   reset-search-on-open: true
+
+  # Clic droit sur une annonce contenant une shulker (ou un autre conteneur) pour voir son contenu
+  # directement, sans ouvrir la confirmation d'achat et sans avoir assez d'argent.
+  # L'aperçu ouvre inventories/shulker-content.yml et ne réserve pas l'annonce.
+  container-preview:
+    enable: true
+    # Type de clic qui ouvre l'aperçu : RIGHT, LEFT, SHIFT_RIGHT, SHIFT_LEFT, MIDDLE...
+    # Avec LEFT, acheter une annonce contenant un conteneur n'est possible qu'avec un autre clic.
+    click: RIGHT
 
   # Comportement lors du retrait d'un item des annonces actives (le vendeur annule sa vente)
   remove-listed-item:
@@ -821,8 +900,9 @@ action:
     # Si false, les items vont dans leur section "items achetés" pour récupération ultérieure
     give-item: false
 
-    # Si give-item est true, ceci vérifie si le joueur a assez de place dans son inventaire
-    # Si false et pas de place disponible, l'achat est bloqué
+    # Utilisé uniquement si give-item est true
+    # Si true, l'achat est bloqué quand l'inventaire du joueur est plein
+    # Si false, l'achat passe et, si l'objet ne rentre pas, il est placé dans les "objets achetés"
     player-inventory-must-have-free-space: true
 
     # Si true, rouvre l'inventaire d'enchères après l'achat

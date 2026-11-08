@@ -14,6 +14,7 @@ import fr.maxlego08.zauctionhouse.api.log.LogType;
 import fr.maxlego08.zauctionhouse.api.messages.Message;
 import fr.maxlego08.zauctionhouse.api.storage.dto.LogDTO;
 import fr.maxlego08.zauctionhouse.api.utils.Base64ItemStack;
+import fr.maxlego08.zauctionhouse.api.utils.Permission;
 import fr.maxlego08.zauctionhouse.storage.repository.repositories.LogRepository;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -81,9 +82,7 @@ public class AdminLogsButton extends LoadingButton {
 
             ItemStack displayItem = createDisplayItem(adminLogItem, dateFormat, lore);
             var button = inventoryEngine.addItem(slot, displayItem);
-            if (button != null) {
-                button.setClick(event -> handleClick(player, event.getClick(), adminLogItem));
-            }
+            button.setClick(event -> handleClick(player, event.getClick(), adminLogItem));
         });
     }
 
@@ -136,18 +135,33 @@ public class AdminLogsButton extends LoadingButton {
 
     /**
      * Creates an AdminLogItem by deserializing the item stacks from the log.
+     * <p>
+     * Les annonces multi-stacks sont ECRITES en joignant les charges utiles par {@code ';'}
+     * (ZAuctionManager.logItemAction, SellService, V3MigrationService) : la lecture doit donc
+     * redecouper, sinon un log multi-stacks s'affiche vide dans l'audit admin (C-100).
+     * {@code "abc".split(";")} rend {@code ["abc"]}, le comportement des logs mono-stack est
+     * donc strictement inchange.
+     *
+     * @param log the log row to rebuild
+     * @return the admin log item, with every readable stack of the payload
      */
     private AdminLogItem createAdminLogItem(LogDTO log) {
         List<ItemStack> itemStacks = new ArrayList<>();
 
         if (log.itemstack() != null && !log.itemstack().isEmpty()) {
-            try {
-                ItemStack decoded = Base64ItemStack.decode(log.itemstack());
-                if (decoded != null) {
-                    itemStacks.add(decoded);
+            for (String part : log.itemstack().split(";")) {
+                if (part.isBlank()) continue;
+                try {
+                    ItemStack decoded = Base64ItemStack.decode(part);
+                    if (decoded != null) {
+                        itemStacks.add(decoded);
+                    }
+                } catch (Throwable throwable) {
+                    // Throwable et non Exception : le decodeur < 1.20.5 passe par ItemStackUtils
+                    // et peut lever StackOverflowError (cf. C-054). Un stack corrompu ne doit plus
+                    // emporter les N-1 valides du lot.
+                    this.plugin.getLogger().warning("Failed to decode itemstack for log " + log.id() + ": " + throwable.getMessage());
                 }
-            } catch (Exception e) {
-                this.plugin.getLogger().warning("Failed to decode itemstack for log " + log.id() + ": " + e.getMessage());
             }
         }
 
@@ -197,6 +211,9 @@ public class AdminLogsButton extends LoadingButton {
 
         if (clickType == ClickType.LEFT || clickType == ClickType.SHIFT_LEFT) {
             // Left click - retrieve the item
+
+            if (!player.hasPermission(Permission.ADMIN_LOGS_GIVE_ITEM_TO_PLAYER.asPermission())) return;
+
             giveItemsToPlayer(player, adminLogItem);
         } else if (clickType == ClickType.RIGHT || clickType == ClickType.SHIFT_RIGHT) {
             // Right click - view all items if multiple
@@ -205,6 +222,9 @@ public class AdminLogsButton extends LoadingButton {
                 cache.set(PlayerCacheKey.CURRENT_PAGE, this.plugin.getInventoriesLoader().getInventoryManager().getPage(player));
                 this.plugin.getInventoriesLoader().openInventory(player, Inventories.PURCHASE_INVENTORY_CONFIRM);
             } else {
+
+                if (!player.hasPermission(Permission.ADMIN_LOGS_GIVE_ITEM_TO_PLAYER.asPermission())) return;
+
                 // If single item, just retrieve it
                 giveItemsToPlayer(player, adminLogItem);
             }
@@ -242,7 +262,7 @@ public class AdminLogsButton extends LoadingButton {
         return switch (logType) {
             case SALE -> Material.GOLD_INGOT;
             case PURCHASE -> Material.EMERALD;
-            case REMOVE_LISTED -> Material.BARRIER;
+            case REMOVE_LISTED, ADMIN_REMOVE -> Material.BARRIER;
             case REMOVE_SELLING -> Material.CHEST;
             case REMOVE_EXPIRED -> Material.CLOCK;
             case REMOVE_PURCHASED -> Material.HOPPER;

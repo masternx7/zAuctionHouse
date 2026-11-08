@@ -17,6 +17,7 @@ import fr.maxlego08.zauctionhouse.api.configuration.records.HistoryConfiguration
 import fr.maxlego08.zauctionhouse.api.configuration.records.SalesNotificationConfiguration;
 import fr.maxlego08.zauctionhouse.api.configuration.records.ItemDisplayConfiguration;
 import fr.maxlego08.zauctionhouse.api.configuration.records.ItemLoreConfiguration;
+import fr.maxlego08.zauctionhouse.api.configuration.records.MaintenanceConfiguration;
 import fr.maxlego08.zauctionhouse.api.configuration.records.NumberMultiplicationConfiguration;
 import fr.maxlego08.zauctionhouse.api.configuration.records.PerformanceConfiguration;
 import fr.maxlego08.zauctionhouse.api.configuration.records.PerformanceDebugConfiguration;
@@ -65,11 +66,14 @@ public class MainConfiguration extends YamlLoader implements Configuration {
     private SalesNotificationConfiguration salesNotificationConfiguration;
     private BroadcastConfiguration broadcastConfiguration;
     private PerformanceConfiguration performanceConfiguration;
+    private MaintenanceConfiguration maintenanceConfiguration;
     private SearchFilterConfiguration searchFilterConfiguration;
     private HistoryConfiguration historyConfiguration;
     private CooldownConfiguration cooldownConfiguration;
     private List<InventoryCommandConfiguration> inventoryCommandConfigurations;
     private boolean sellInventoryEnabled;
+    private boolean saveProfileOnSell;
+    private boolean allowDecimalPrices;
 
     public MainConfiguration(AuctionPlugin plugin) {
         this.plugin = plugin;
@@ -99,6 +103,7 @@ public class MainConfiguration extends YamlLoader implements Configuration {
         this.salesNotificationConfiguration = SalesNotificationConfiguration.of(plugin, config);
         this.broadcastConfiguration = BroadcastConfiguration.of(plugin, config);
         this.performanceConfiguration = PerformanceConfiguration.of(plugin, config);
+        this.maintenanceConfiguration = MaintenanceConfiguration.of(plugin, config);
         this.searchFilterConfiguration = SearchFilterConfiguration.of(plugin, config);
         this.historyConfiguration = HistoryConfiguration.of(plugin, config);
         this.cooldownConfiguration = CooldownConfiguration.of(plugin, config);
@@ -109,6 +114,8 @@ public class MainConfiguration extends YamlLoader implements Configuration {
             this.dateFormat.setTimeZone(TimeZone.getTimeZone(timezone));
         }
         this.sellInventoryEnabled = config.getBoolean("commands.sell.enable-sell-inventory", false);
+        this.saveProfileOnSell = config.getBoolean("action.save-profile-on-sell", true);
+        this.allowDecimalPrices = config.getBoolean("allow-decimal-prices", true);
 
         // Validate critical configurations
         validateConfigurations();
@@ -253,6 +260,11 @@ public class MainConfiguration extends YamlLoader implements Configuration {
     }
 
     @Override
+    public MaintenanceConfiguration getMaintenance() {
+        return this.maintenanceConfiguration == null ? MaintenanceConfiguration.defaults() : this.maintenanceConfiguration;
+    }
+
+    @Override
     public SearchFilterConfiguration getSearchFilter() {
         return this.searchFilterConfiguration;
     }
@@ -275,6 +287,16 @@ public class MainConfiguration extends YamlLoader implements Configuration {
     @Override
     public boolean isSellInventoryEnabled() {
         return this.sellInventoryEnabled;
+    }
+
+    @Override
+    public boolean isSaveProfileOnSell() {
+        return this.saveProfileOnSell;
+    }
+
+    @Override
+    public boolean isAllowDecimalPrices() {
+        return this.allowDecimalPrices;
     }
 
     @Override

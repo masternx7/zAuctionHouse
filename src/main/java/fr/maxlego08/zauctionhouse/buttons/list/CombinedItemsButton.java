@@ -44,7 +44,7 @@ public class CombinedItemsButton extends PaginateButton {
 
         if (items.isEmpty()) {
             if (this.emptySlot == -1) return;
-            inventoryEngine.addItem(this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
+            inventoryEngine.addItem(isPlayerInventory(), this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
             return;
         }
 
@@ -58,7 +58,7 @@ public class CombinedItemsButton extends PaginateButton {
             List<String> lore = getLoreForStorageType(configuration, item, storageType);
             Set<ItemPlaceholder> needed = getPlaceholdersForStorageType(configuration, item, storageType);
 
-            inventoryEngine.addItem(slot, item.buildItemStack(player, lore, needed)).setClick(event -> {
+            inventoryEngine.addItem(isPlayerInventory(), slot, item.buildItemStack(player, lore, needed)).setClick(event -> {
                 switch (storageType) {
                     case LISTED -> removeService.removeSellingItem(player, item);
                     case EXPIRED -> removeService.removeExpiredItem(player, item);

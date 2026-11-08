@@ -1,3 +1,187 @@
+# Unreleased
+
+# 4.0.1.7
+
+- **Added** PostgreSQL support: set `storage-type: POSTGRESQL` (`POSTGRES` is also accepted) in `config.yml` and fill in `database-configuration` (default PostgreSQL port: `5432`). The JDBC driver is downloaded automatically by the server. PostgreSQL also works as the shared database of the Redis addon
+- **Added** Admin player directory, new `inventories/admin/admin-main.yml` inventory: lists every player with auction activity (listings, purchases, logs or transactions) with `%listed%`, `%sold%` and `%purchased%`, sortable by name, listed, sold or purchased (`ZAUCTIONHOUSE_ADMIN_PLAYERS_SORT`). Clicking a head opens that player's admin history. Opened by `/ah admin` without argument, by `/ah admin history` without player (the player argument is now optional, `/ah admin history <player>` still opens the player's history) and by the new `ZAUCTIONHOUSE_ADMIN_MAIN` button (added as "All players" in `admin-history-main.yml`). Requires `zauctionhouse.admin.items`. New buttons `ZAUCTIONHOUSE_ADMIN_PLAYERS`, `ZAUCTIONHOUSE_ADMIN_PLAYERS_SORT` and `ZAUCTIONHOUSE_ADMIN_MAIN`
+- **Added** Admin removal confirmation, new `inventories/admin/admin-remove-confirm.yml` inventory: with the `zauctionhouse.admin.remove.inventory` permission, pressing Q (drop) or middle-clicking a listing in the main auction opens it (checked before the container preview). Three options reset on each opening: `ZAUCTIONHOUSE_ADMIN_REMOVE_NOTIFY` (notify the seller, on by default), `ZAUCTIONHOUSE_ADMIN_REMOVE_EXPIRE` (move the item to the seller's expired items instead of deleting it, on by default) and `ZAUCTIONHOUSE_ADMIN_REMOVE_COPY` (give the item to the admin, as a copy when Expire is on so the seller keeps theirs, off by default). `ZAUCTIONHOUSE_ADMIN_REMOVE_CONFIRM` performs a cluster-safe removal. While the inventory is open, the listing is reserved for the administrator (same mechanism as the purchase confirmation, synchronized across the cluster): it disappears from the other players' auction house and can be neither bought nor removed by its seller. Closing the inventory or clicking Cancel puts it back on sale, and so does a removal that fails. No change is needed in the Redis addon, but every server of the cluster should run the same plugin version
+- **Fixed** A confirmation inventory (purchase or removal) could release, or confirm, a listing that had meanwhile been reserved by another player: after a reservation was freed by the confirmation timeout, closing or confirming the old window acted on the new reservation, and a player leaving, dying or opening a container preview could put back on sale a listing that someone else was confirming. Each reservation now records its owner and only that player can confirm or release it
+- **Added** `admin-main.yml` and `admin-remove-confirm.yml` are copied automatically on startup on existing installations when missing
+- **Added** An offline seller notified of an admin removal receives the message on their next join
+- **Added** `admin-listing-removed` message in `messages.yml`, sent to the seller when an admin removes their listing
+- **Added** `ADMIN_REMOVE` log type ("Admin Remove"), written for each admin removal and visible in `admin-logs`
+- **API** `AuctionManager#adminRemoveItem(Player, UUID, Item, StorageType, boolean notify, boolean expire, boolean copy)` and its overload with `boolean updateInventory`, `InventoriesLoader#openInventory(Player, Inventories, int, boolean useOldInventories)`, `LogType.ADMIN_REMOVE`, `PlayerCacheKey` `ADMIN_PLAYERS_DATA`, `ADMIN_PLAYERS_LOADING`, `ADMIN_PLAYERS_SORT`, `ADMIN_REMOVE_NOTIFY`, `ADMIN_REMOVE_EXPIRE`, `ADMIN_REMOVE_COPY` and `AdminPlayerDTO`. `Item#getReservationOwner`, `Item#setReservationOwner` and `Item#isReservedBy` (the player who holds a purchase or removal confirmation on this server, reset when the listing goes back on sale). `AuctionRemoveService#removeListedItem` now only accepts a listing that is available: a listing in `IS_REMOVE_CONFIRM` can only be removed from the seller's own confirmation inventory
+- **Updated** Sarah to version `1.27`
+
+# 4.0.1.6
+
+- **Added** `dialog.enabled` option on `ZAUCTIONHOUSE_SEARCH`: clicking the button opens a native Paper dialog (via zMenu) with a text field pre-filled with the current search and **Search**, **Clear** and **Cancel** buttons, instead of asking in chat. Disabled by default; if the dialog cannot be loaded, the chat input is used. The dialog is configured in the new `dialogs/search.yml` file (title, description, labels), available in every language. Thanks to LIUZAZA007 (#41)
+- **Fixed** Right-clicking a listing that contains a shulker box (or another container) opened the purchase process, so a player without enough money could not see its content (regression from V3). It now opens `shulker-content.yml` directly, without checking the balance and without reserving the listing. New `action.container-preview` option in `config.yml` (`enable`, `click`, default `RIGHT`) (#44)
+- **Fixed** After a hot reload of the plugin (PlugMan & co.), zMenu could keep the buttons and inventories of the old instance. They are now unregistered when the plugin is disabled and cleaned up on the next load, and clicks on an interface left open by the old instance are ignored
+
+# 4.0.1.5
+
+- **Fixed** With `enable-sell-inventory: true`, the amount given to `/ah sell <price> <amount>` was ignored and the whole stack held in hand was listed. The amount is now applied when confirming, capped by what the player actually holds
+- **Fixed** With `purchased-item.give-item: true` and `player-inventory-must-have-free-space: false`, a purchase that did not fit in the inventory was dropped on the ground. The whole lot now goes to "purchased items" (as in V3) and the new `purchase-inventory-full` message is sent. With `player-inventory-must-have-free-space: true` the purchase is still blocked, and an inventory that fills up between the click and the delivery now also sends the lot to "purchased items" instead of dropping it
+- **Fixed** The `/ah sell` cooldown was consumed even when nothing was sold (sell inventory closed, sale refused). It now starts only once the sale is completed. Other commands keep their current cooldown behaviour
+- **Fixed** A message set to `""` in `messages.yml` still sent a line containing only the prefix. It is now really disabled
+- **Fixed** The sell tax messages (`tax-sell-applied`, `tax-reduced`, `tax-exempt`) were sent before the listing was saved, even when the sale then failed and the tax was refunded. They are now sent after the listing is published
+- **Added** `%tax%` and `%percentage%` in the `item-sold` message, so the tax can be shown in a single message by disabling `tax-sell-applied`
+- **Added** `open-when-empty` option on `ZAUCTIONHOUSE_EXPIRED_INVENTORY`, `ZAUCTIONHOUSE_PURCHASED_INVENTORY` and `ZAUCTIONHOUSE_SELLING_INVENTORY`: the button opens the inventory even when the list is empty. The default `auction.yml` uses it on the `else` buttons
+- **Added** `economy` option on `ZAUCTIONHOUSE_SELL_CONFIRM` to always sell with a given economy: one button per economy lists the item in a single click (regression from V3). The same option on `ZAUCTIONHOUSE_SELL_ECONOMY` selects that economy instead of cycling, with a new `%selected%` placeholder
+- **Added** `SELL_ECONOMY` can be set with `/ah admin cache set`
+- **Added** PlaceholderAPI placeholders for the sale in progress: `%zauctionhouse_sell_price%`, `%zauctionhouse_sell_price_formatted%`, `%zauctionhouse_sell_economy%`, `%zauctionhouse_sell_economy_name%`, `%zauctionhouse_sell_amount%`
+- **API** `AuctionSellService#openSellCommandInventory(Player, BigDecimal, AuctionEconomy, int)`, `CommandManager#applyCooldown(Player, VCommand)` and `VCommand#setDeferredCooldown(boolean)`
+- **Updated** Sarah to version ``1.26``, added `database-configuration.max-lifetime`
+
+# 4.0.1.4
+
+> **Read this before updating a network.** This release closes a long list of item and money duplication paths. Two setups that used to start are now refused, and operations that used to silently overwrite the database now fail with a message. That is intended, but your players and your staff will see it on day one.
+
+### Before you update
+
+- **SQLite + the Redis addon is now refused at startup.** Each server kept its own SQLite file, so nothing was ever synchronised while every node claimed to be clustered. Switch `storage-type` to `MYSQL` or `MARIADB` first
+- **A server that loses Redis now blocks sales, purchases and removals** instead of quietly running on its own and duplicating items. If you run a single server with the addon installed "just in case", uninstall it
+- **Operations that lose a race now fail instead of overwriting.** Two servers, or two clicks on the same listing, can no longer both succeed. Players will start seeing an "item no longer available" message they had never seen
+- **Item tax rules now apply on purchase for every economy type.** A `PURCHASE` or `CAPITALISM` rule declared on a `type: SELL` economy used to do nothing at purchase time. Review `tax.item-rules` in `economies.yml` before updating, or your buyers will suddenly pay more
+- **Four database indexes are created on the first start.** On a MySQL database that already holds hundreds of thousands of rows this can block startup for several minutes, and every node of a network will try at once. Plan a maintenance window, or create them by hand beforehand
+- **Expired listings are now swept automatically**, every 60 seconds by default. If you have a large backlog of listings nobody ever collected, hundreds of them will move to the expired tab right after the restart and their sellers will get a flood of items to claim. Set `maintenance.expiration-sweep-interval-seconds` to `0` to disable it
+- **Keep `write-itemstack-format-marker` at `false`** until every server of the network runs this version. Items written with the marker cannot be read back by an older jar, so until you flip it you can still roll back
+- The update also adds a few nullable columns and one table. Downgrading the jar simply ignores them, the schema is not a one-way door
+
+### Money
+
+- **Fixed** A purchase could take more money than the amount that had been checked, because item tax rules were ignored by the check but applied by the payment
+- **Fixed** A `CAPITALISM` item tax rule on a `PURCHASE` or `BOTH` economy paid the seller more than the buyer spent, creating money out of nothing on every sale
+- **Fixed** A payment refused by the economy plugin was never checked: the buyer still received the item, or the seller's money silently disappeared
+- **Fixed** Sellers paid in `LEVEL`, `EXPERIENCE`, `ITEM` or `ZMENUITEMS` lost their money when they were offline. Those payments are now claimable, and `must-be-online` is forced on for those economies with a warning in console
+- **Fixed** The sell tax could be reported as paid without ever being taken
+- **Fixed** An error while writing the purchase history cancelled the purchase *after* the buyer had paid and the seller had been credited
+- **Fixed** Pending money could be marked as claimed without ever being paid — a missing economy, a failed deposit or an offline player each destroyed the money
+- **Fixed** The same pending payment could be claimed twice by racing `/ah claim`, the claim button and the auto-claim on join
+- **Changed** For a listing holding several stacks, the purchase tax now uses the highest matching item rule, like the selling side already did
+
+### Item duplication
+
+- **Fixed** Taking back a listed, selling, expired or purchased item could duplicate it on a network. The item is now re-checked against the database while the server holds the cluster lock, exactly like a purchase already did
+- **Fixed** A purchase handed the item over before the database confirmed it: if the write failed, the buyer kept the item and the listing stayed on sale. This one needed no cluster at all
+- **Fixed** Buttons still armed in an already-open interface could act on an item that had been sold or removed in the meantime
+- **Fixed** `/ah admin` removal ignored a lock held by another server, announced the removal before saving it — other servers then put the item back on sale — and never released its lock on failure
+- **Fixed** Taking back a listing with `give-item: true` and a nearly full inventory could store it as expired on one server and deleted on the others, making it impossible to claim anywhere
+- **Fixed** "Retrieve everything" abandoned the rest of the batch on the first error without a word. It now finishes and tells the player how many items were actually processed
+- **Changed** With `give-item: true`, an inventory that fills up between the click and the execution now drops the overflow on the ground instead of silently sending the item to the expired tab
+- **Changed** An admin removing an expired or purchased item is now final across the whole network, other servers no longer put the row back
+
+### Selling
+
+- **Fixed** A crash during a sale could destroy the items: the stacks left the seller's inventory before the listing was saved. The listing is now written first, and any failure refunds both the items and the sell tax
+- **Added** A startup check that cleans up listings left half-created by a crash. Either the seller never lost their items and the orphan row is deleted, or they did and the listing becomes claimable in their expired tab. Both cases are logged
+- **Fixed** The sell selection is limited to what the interface can actually display and give back, instead of silently swallowing the surplus
+- **Fixed** A listing whose content can no longer be read — a Minecraft downgrade, a removed custom-item plugin — is now hidden and logged instead of showing up as an empty or `BARRIER` item that could still be bought. The database row is left untouched, so an older server can never destroy items that are perfectly valid for the others
+
+### Items stuck in a confirmation
+
+- **Added** An item left locked in a confirmation screen is now released automatically after `maintenance.confirmation-timeout-seconds` (60 by default). Quitting or dying releases it immediately. A player who disconnected with a confirmation open used to leave the item unbuyable on every server
+- **Fixed** Confirming and cancelling went through different code paths, and one of them could leave the item locked
+- **Fixed** `/ah admin cache clear` released items that were legitimately locked inside a confirmation
+
+### Stability and performance
+
+- **Fixed** Database writes that had already been decided could be dropped silently. They are now queued on a dedicated pool, drained on shutdown, and a refused write is logged loudly instead of vanishing
+- **Fixed** The per-player cache was not safe under concurrent access and could come back after the player had disconnected
+- **Fixed** The inventory refresh stopped at the first skipped player, so only a fraction of the connected players saw the auction house update after a sale or a removal
+- **Fixed** Category counters returned `0` for any category whose name in `categories.yml` contained uppercase letters
+- **Fixed** Search, sorting and category counters no longer copy the whole item list on every evaluation
+- **Fixed** Loading the auction house no longer half-loads on a database error, and reloading the items is a real reset instead of an additive load that resurrected ghosts
+- **Fixed** Admin logs handled multi-stack items and counted their deletions incorrectly
+- **Added** A `server-shutting-down` message, shown when a purchase or a sale is attempted while the server is stopping, instead of letting it start and be cut in half
+
+### Migration and admin commands
+
+- **Fixed** `/ah admin migrate` announced a full success on a migration that had destroyed money: on MySQL, every seller's pending balance from V3 was refused by the database and the error was never seen. The command now reports the real result
+- **Fixed** Running the migration twice duplicated every item and every pending balance. It is now blocked once completed, and an explicit `force` argument is needed to override it
+- **Fixed** The migration now runs on its own thread, only one at a time, and refuses to start while players are connected
+- **Fixed** The migration overwrote the name of players who already existed in V4
+- **Fixed** `/ah admin logs clear-migrated` reported a success having purged nothing
+- **Fixed** `/ah admin add` destroyed the item held by the administrator when the write failed, created expired and purchased items that were immediately unclaimable, and never announced its listings to the other servers
+- **Fixed** `/ah admin generate` froze the main thread and could hand its generated listings to real players
+- **Fixed** The three log purge commands reported a success when the deletion had failed
+
+### Multi-server (Redis addon)
+
+- **Added** Locks are now renewed while a purchase or a removal is running, so `redis-config.lock-ttl-seconds` no longer needs to be oversized to survive a slow economy plugin or a slow database. Turn it off with `redis-config.lock-renew-enabled: false`
+- **Fixed** Every message published while a server was reconnecting was lost, leaving items sold elsewhere as buyable ghosts. Listings are now re-synchronised against Redis after each interruption
+- **Fixed** Messages could be applied out of order, an outdated status overwriting a newer one
+- **Fixed** Shutting the addon down released nothing: locks stayed held, the listener thread kept running, and a saturated connection pool could freeze it
+- **Fixed** The addon started listening to the network before the cluster was ready
+- **Fixed** A seller connected to another server was not paid by auto-claim when their item sold
+- **Fixed** An auction house left open on another server kept clickable ghosts after an item was bought or removed there
+- **Fixed** A single unreadable field no longer discards an entire synchronisation message
+- **Fixed** The addon's update checker never reported anything
+- **Changed** A server that cannot register itself in Redis now refuses to start instead of joining with an identity it cannot vouch for, and two servers sharing an identity are now detected
+
+### Configuration and messages
+
+- **Added** A `maintenance` section in `config.yml` for the expiration sweep and the confirmation timeout, plus the `write-itemstack-format-marker` key, in all six languages (en/fr/es/it/id/th)
+- **Added** `action.save-profile-on-sell` (default `true`) — saves the seller's profile right after their items leave their inventory, so a crash cannot hand them back a copy of what they are already selling. It is a disk write on every sale: turn it off on a heavily loaded server, or when another plugin already handles inventory persistence
+- **Added** `admin-item-not-available`, `server-shutting-down`, `item-no-longer-available`, `sell-error-invalid-item`, `sell-inventory-full` and `remove-all-items-partial` messages, in all six languages
+- **Added** `redis-config.lock-renew-enabled` in the addon, and `lock-ttl-seconds` is re-documented as a renewable lease
+- **Changed** `economies.yml` now documents the offline payment and purchase tax changes above, in all six languages
+
+### API events
+
+- **Added** Four post-action events in the new package `fr.maxlego08.zauctionhouse.api.event.events.stats`. They are not cancellable and are delivered synchronously on the main thread (global region thread on Folia, not the player's region: schedule on the player before touching entity state). A failure to dispatch them never affects the underlying sale, purchase or claim:
+  - `AuctionItemListedEvent` — a listing has been committed and published, on every sell path (command, sell inventory, GUI). Carries the seller, the auction item and the sell tax (`null` when none was applied)
+  - `AuctionItemPurchasedEvent` — a purchase has been committed. Carries the buyer, the auction item, the amounts actually charged (`getBuyerPays()`, `getSellerReceives()`), the applied `TaxResult` and whether the seller was paid immediately (`RETRIEVED`) or is owed a claim (`PENDING`). Never fired for a failed, cancelled or lost purchase
+  - `AuctionMoneyClaimEvent` — a player has claimed pending money. Carries the amount actually deposited for each economy
+  - `AuctionOpenEvent` — a player opens, or is brought back to, the main auction inventory
+- **Fixed** `AuctionPreSellEvent` was only fired by `/ah sell` when the sell inventory was disabled. It is now fired once for every listing, including the sell inventory and the GUI, and cancelling it cancels the sale on every path. Addons listening to it will now see GUI sales too. Changing the item or the amount is only honoured for single-stack sales; price, expiration and economy changes are honoured everywhere
+
+### Known limitations
+
+- On a purchase the money still moves before the listing is committed. If another server sold the same listing first, the buyer is charged and the seller keeps both the item and a claimable payment. The incident is logged with everything needed to fix it by hand, but it is not refunded automatically. That is the next piece of work
+- The listing limit counts listings, not stacks: a rank limited to five listings can still hold thirty-six stacks in each of them
+- The addon has no compatibility check at startup, so always update the plugin first and the addon second, never the reverse
+
+# 4.0.1.3
+
+- **Added** FastStats metrics integration alongside the existing bStats reporting. The FastStats client is bundled and relocated in the final JAR, starts after plugin initialization, and shuts down cleanly with the plugin
+- **Fixed** The final plugin JAR containing three duplicate `META-INF/faststats.properties` entries. FastStats is now scoped to the root plugin module, and Shadow keeps a single copy of its identical version metadata
+- **Added** Indonesian (`id`) locale with translated configuration, messages, rules, categories, Discord settings, inventories, and patterns. Automatic language detection now selects Indonesian for servers located in Indonesia
+- **Fixed** Admin expired, purchased, and selling item inventories not displaying their YAML-configured empty-state item when the selected player had no matching items
+
+# 4.0.1.2
+
+- **Updated** CurrenciesAPI dependency from 1.0.13 to 1.0.14 - the misspelled ExcellentEconomy economy type is renamed from `EXCELLENTEECONOMY` to `EXCELLENTECONOMY`. Both spellings are now accepted as a `type` in `economies.yml`; the old one is deprecated and will be removed in a future CurrenciesAPI release
+- **Added** Permission for admin button:
+   - `admin_expired_items_remove`, allow players to remove expired items from the auction house
+   - `admin_logs_give_item_to_player`, allow players to give items to other players from the auction house logs
+   - `admin_purchased_items_remove`, allow players to remove purchased items from the auction house
+   - `admin_listed_items_remov`, allow players to remove listed items from the auction house
+
+# 4.0.1.1
+
+- **Added** `allow-decimal-prices` option in `config.yml` (default `true`) - when set to `false`, players can no longer list items for a price containing decimals (e.g. `10.5`); only whole-number prices are accepted. Enforced on every sell path (the `/ah sell` command and the sell-inventory confirm button) via `SellService`, and shows the new `price-decimal-not-allowed` message. Option and message synced across all language files (en/fr/es/it/th)
+- **Added** CrazyAuction migration.
+
+# 4.0.1.0
+
+- **Fixed** Critical cross-server duplication where a sold item reappeared in the seller's items (multi-server / Redis). When `purchased-item.give-item: true`, a purchase set the database row to `DELETED` before broadcasting the `ItemBought` event; on every other server the `ItemBoughtListener` re-fetched the item via `selectItem` (which filters out `DELETED` rows), got `null`, and bailed out **before** removing the listing from its in-memory store. The ghost listing therefore survived on all non-buyer servers and the seller still saw it in `/ah selling`. The listener now removes the listing from in-memory storage **unconditionally** (mirroring `ItemRemovedListener`), independently of the database lookup. `ItemBoughtMessage` was enriched with the seller UUID/name, item display, price and buyer name so the real-time seller notification (including `%buyer%`, which was already broken on remote servers) works without a database round-trip
+- **Fixed** Purchased items not appearing on other servers with `purchased-item.give-item: false` (multi-server / Redis). The `ItemBoughtListener` removed the item from `LISTED` on remote servers but never added it to their in-memory `PURCHASED` store, so a buyer switching servers could not see their purchase until a restart. Remote servers now re-add the item to `PURCHASED` (the buyer-server purchase already did this locally; the buyer-server ignores its own message). For `give-item: true` the message flags `givenToBuyer` so remote servers skip the (always-null) database lookup entirely
+- **Fixed** A crashed/timed-out purchase could leave an item permanently un-buyable in multi-server (Redis) setups. The lock key `auction:lock:<id>` expires via TTL but the item hash field `state=LOCKED` persisted (up to the item TTL, ~30 days), so `checkAvailability` reported the item as locked forever. Lock state now keys on the lock key's existence: a `LOCKED` state with no live lock key is treated as a stale lock and recovered. To prevent this recovery from ever enabling a double-purchase, `PurchaseService` now re-validates authoritative database state **under the lock** before charging — a row that is already `DELETED` or has a buyer aborts the purchase with nothing withdrawn
+- **Fixed** Expiration is now cluster-aware in multi-server (Redis) setups. Previously `ExpireService` moved items `LISTED -> EXPIRED` purely locally with no cluster coordination, so a lingering ghost of an item sold on another server could be resurrected as an `EXPIRED` item for the seller (and claimed back = duplication). In distributed setups the `LISTED -> EXPIRED` transition now locks the item, re-reads authoritative database state (skipping items sold elsewhere), performs the move, and broadcasts it so all nodes converge. Single-server setups keep the original fast path
+- **Fixed** `ItemRepository` could overwrite a sold/removed item when expiring. The `LISTED -> EXPIRED` update is now guarded with `WHERE storage_type = 'LISTED'`, so an expiration `UPDATE` can never clobber a row another server already set to `DELETED`/`PURCHASED`
+- **Added** DonutAuction migration - migrate data from the DonutAuction plugin (by EliVB) to zAuctionHouse V4 using `/ah admin migrate donutauction confirm` (aliases `donut`, `donutsmp`, `da`). Reads `plugins/DonutAuction/ah.data` directly, so no database configuration is needed; active auctions are imported as listed items and past-expiry auctions as reclaimable expired items, while unclaimed pending payments (money, not items) are skipped. Legacy Base64 itemstacks are deserialized through a hardened class allowlist to guard against malicious data files
+- **Fixed** Cross-server purchases could fail with `IllegalArgumentException: name cannot be null` (multi-server / Redis). When a buyer bought an item whose seller had never logged into that specific backend node, `getSellerName()` returned `null` and was passed straight to the economy provider's `withdraw()` call (and to the `%seller%` placeholder in the purchase notifications), aborting the purchase. The seller name is now resolved from the shared database before the economy call, falling back to the seller's UUID string (with a console warning to verify all servers share the same MySQL database) when even that lookup fails, so a `null` name can never reach downstream code
+- **Fixed** Purchases failing or charging incorrectly under CAPITALISM (VAT-style) tax - the balance check before buying only verified the buyer could afford the listed price, not the price plus the CAPITALISM tax added on top, so a player holding exactly the listed amount passed the check and the tax-inclusive withdrawal could then fail. `PurchaseService` and the `ZAUCTIONHOUSE_LISTED_ITEMS` button now check the tax-inclusive required balance when CAPITALISM tax is enabled
+- **Fixed** Items getting stuck in the "being purchased" state after a purchase failed for insufficient funds - the item was marked `IS_BEING_PURCHASED` before the funds check but only unlocked (not status-restored) on failure, so in multi-server (Redis) setups it stayed stuck and could no longer be bought. The status is now restored and broadcast to the cluster before unlocking
+- **Fixed** Money loss on economy errors during a purchase or claim - buyer withdraw, seller deposit and claim deposits are now wrapped in error handling: if the buyer is charged but the seller deposit throws, the buyer is automatically refunded; failed claim deposits are logged and skipped instead of silently losing the money
+- **Fixed** Expired listings could still be displayed and counted in the auction house. Because expiration is processed lazily, an item could remain `AVAILABLE` past its expiry (especially while a cache was stale) and keep showing in the main list, in the per-category counts, and in the `%zauctionhouse_listed_items%` placeholder. A single `Item.isActivelyListed()` predicate (available **and** not expired) is now applied at every display chokepoint, and interacting with a listing that has already expired now moves it to the player's expired items instead of opening a confirm inventory or re-showing it
+- **Fixed** The selling, expired, purchased, listed and combined item-list buttons ignored their inventory's `player-inventory` setting - paginated items and the empty-slot placeholder were always rendered into the chest GUI even when the inventory was configured as a player inventory. These buttons now render items into the player's own inventory area when configured (PR #25)
+- **Fixed** Auction search button always showed a hardcoded English `None` in `%search_query%` when no search was active, ignoring the server language. The `ZAUCTIONHOUSE_SEARCH` button now reads a configurable `none-value` option on the search button in `inventories/auction.yml`, with a localized default per language (`None` / `Aucune` / `Ninguna` / `Nessuna` / `ไม่มี`), so the empty-search text is translatable and customizable
+- **Added** Configurable `%search_active%` value on the auction search button - the `ZAUCTIONHOUSE_SEARCH` button now reads `active-value` (default `true`) and `inactive-value` (default `false`) options in `inventories/auction.yml`, so the value returned by `%search_active%` when a search is / isn't active can be customized (e.g. `Enabled`/`Disabled`, `Yes`/`No`) instead of the hardcoded `true`/`false`
+- **Changed** Updated the required zMenu API to `1.1.1.6` - make sure your server runs zMenu `1.1.1.6` or newer
+
 # 4.0.0.9
 
 - **Fixed** Sales history spamming `Item not found for log ID` warnings in console - logs migrated from V3 are created with `item_id = 0` (no direct mapping to V4 items), causing the history service to log a warning for every V3 entry. The history now filters out logs with invalid item references at the SQL level

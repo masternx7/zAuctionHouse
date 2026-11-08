@@ -1,23 +1,17 @@
 package fr.maxlego08.zauctionhouse.api;
 
+import fr.maxlego08.zauctionhouse.api.cache.PlayerCache;
 import fr.maxlego08.zauctionhouse.api.cache.PlayerCacheKey;
+import fr.maxlego08.zauctionhouse.api.category.Category;
 import fr.maxlego08.zauctionhouse.api.item.Item;
 import fr.maxlego08.zauctionhouse.api.item.StorageType;
 import fr.maxlego08.zauctionhouse.api.messages.Message;
-import fr.maxlego08.zauctionhouse.api.services.AuctionClaimService;
-import fr.maxlego08.zauctionhouse.api.services.AuctionExpireService;
-import fr.maxlego08.zauctionhouse.api.services.AuctionHistoryService;
-import fr.maxlego08.zauctionhouse.api.services.AuctionOptionService;
-import fr.maxlego08.zauctionhouse.api.services.AuctionPurchaseService;
-import fr.maxlego08.zauctionhouse.api.services.AuctionRemoveService;
-import fr.maxlego08.zauctionhouse.api.services.AuctionSellService;
-import fr.maxlego08.zauctionhouse.api.cache.PlayerCache;
+import fr.maxlego08.zauctionhouse.api.services.*;
 import fr.maxlego08.zauctionhouse.api.utils.IntList;
 import org.bukkit.entity.Player;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
@@ -97,6 +91,52 @@ public interface AuctionManager {
      * @return immutable or defensive copy list of items currently recorded for that storage type
      */
     List<Item> getItems(StorageType storageType);
+
+    /**
+     * Resolves a single item by its identifier inside the given bucket.
+     * <p>
+     * Declaree {@code default} pour rester source- ET binaire-compatible : les implementations
+     * tierces heritent d'un balayage lineaire, l'implementation du plugin la surcharge en O(1)
+     * sur le conteneur interne.
+     *
+     * @param storageType logical container to read from
+     * @param itemId      identifier to resolve
+     * @return the live item instance, or {@code null} when the bucket does not hold it
+     */
+    default Item getItem(StorageType storageType, int itemId) {
+        for (Item item : getItems(storageType)) {
+            if (item.getId() == itemId) return item;
+        }
+        return null;
+    }
+
+    /**
+     * Number of items actually displayed in the auction list: available for sale and not
+     * expired. Same filter as {@link Item#isActivelyListed()} and as the sorted cache used by
+     * the GUI, so the count always matches what the player sees.
+     * <p>
+     * Declaree {@code default} pour la meme raison que {@link #getItem(StorageType, int)} :
+     * l'implementation du plugin la sert en O(1) depuis le cache trie.
+     *
+     * @return number of actively listed items
+     */
+    default int getListedItemCount() {
+        return (int) getItems(StorageType.LISTED).stream().filter(Item::isActivelyListed).count();
+    }
+
+    /**
+     * Same as {@link #getListedItemCount()}, restricted to one category.
+     *
+     * @param category category to restrict to; {@code null} means every category
+     * @return number of actively listed items in that category
+     */
+    default int getListedItemCount(Category category) {
+        if (category == null) return getListedItemCount();
+        return (int) getItems(StorageType.LISTED).stream()
+                .filter(Item::isActivelyListed)
+                .filter(item -> item.hasCategory(category))
+                .count();
+    }
 
     /**
      * Resolves cached item identifiers back to their live instances from the storage map.
@@ -309,12 +349,43 @@ public interface AuctionManager {
      * Allows an administrator to remove an item that belongs to another player from any storage
      * type. Implementations should log the action and respect configured permissions.
      *
-     * @param admin            administrator performing the removal
-     * @param targetUniqueId   owner of the item
-     * @param item             item to remove
-     * @param storageType      storage bucket the item currently resides in
+     * @param admin          administrator performing the removal
+     * @param targetUniqueId owner of the item
+     * @param item           item to remove
+     * @param storageType    storage bucket the item currently resides in
      */
     void adminRemoveItem(Player admin, java.util.UUID targetUniqueId, Item item, StorageType storageType);
+
+    /**
+     * Removes a specified item from the target player's storage, with options for notification,
+     * expiration, and whether the operation involves a copy of the item.
+     *
+     * @param admin          The administrator performing the item removal action.
+     * @param targetUniqueId The unique identifier of the target player whose item is to be removed.
+     * @param item           The item to be removed from the player's storage.
+     * @param storageType    The type of storage from which the item will be removed.
+     * @param notify         Whether the target player should be notified about the removal.
+     * @param expire         Whether the item should expire upon removal.
+     * @param copy           Whether the removal operation involves a duplicate (copy) of the item.
+     */
+    void adminRemoveItem(Player admin, java.util.UUID targetUniqueId, Item item, StorageType storageType, boolean notify, boolean expire, boolean copy);
+
+    /**
+     * Removes a specified item from the target player's storage, with various administrative options.
+     *
+     * @param admin           The admin player performing the removal.
+     * @param targetUniqueId  The unique identifier of the target player.
+     * @param item            The item to be removed from the target player's storage.
+     * @param storageType     The type of storage from which the item is to be removed.
+     * @param notify          Whether the target player should be notified about the removal.
+     * @param expire          Whether the item should be marked as expired upon removal.
+     * @param copy            Whether to create a copy of the item before removal.
+     * @param updateInventory Whether to update the target player's inventory after item removal.
+     */
+    default void adminRemoveItem(Player admin, java.util.UUID targetUniqueId, Item item, StorageType storageType,
+                                 boolean notify, boolean expire, boolean copy, boolean updateInventory) {
+        throw new UnsupportedOperationException("Admin removal options are not supported");
+    }
 
     /**
      * Attempts to purchase the provided item on behalf of the player. The returned future completes
@@ -329,7 +400,7 @@ public interface AuctionManager {
     /**
      * Sends a localized or parameterized message to the player using the plugin's messaging system.
      *
-     * @param player recipient of the message
+     * @param player  recipient of the message
      * @param message message descriptor to send
      * @param args    optional parameters inserted into the message template
      */

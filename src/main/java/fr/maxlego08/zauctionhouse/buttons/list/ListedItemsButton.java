@@ -14,6 +14,9 @@ import fr.maxlego08.zauctionhouse.api.item.items.AuctionItem;
 import fr.maxlego08.zauctionhouse.api.messages.Message;
 import fr.maxlego08.zauctionhouse.api.utils.IntList;
 import fr.maxlego08.zauctionhouse.api.utils.Permission;
+import fr.maxlego08.zauctionhouse.buttons.confirm.ConfirmHelper;
+import fr.maxlego08.zauctionhouse.buttons.admin.AdminRemoveConfirmButton;
+import fr.maxlego08.zauctionhouse.tax.ZPurchaseCharge;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -21,7 +24,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.jspecify.annotations.NonNull;
 
-import java.util.ArrayList;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -46,21 +49,23 @@ public class ListedItemsButton extends PaginateButton {
 
         if (itemIds.isEmpty()) {
             if (this.emptySlot == -1) return;
-            inventoryEngine.addItem(this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
+            inventoryEngine.addItem(isPlayerInventory(), this.emptySlot, getCustomItemStack(player, false, new Placeholders()));
             return;
         }
 
         // 2. Resolve ONLY items for the current page
         int page = inventoryEngine.getPage() - 1; // zMenu pages start at 1
-        var slots = new ArrayList<>(getSlots());
+        // C-074 : plus de copie defensive de la liste des slots, ce rendu ne fait que la LIRE.
+        var slots = this.slots;
         List<Item> pageItems = manager.resolveItemsForPage(StorageType.LISTED, itemIds, page, slots.size());
 
-        // 3. Display items directly
-        for (int i = 0; i < pageItems.size(); i++) {
-            Item item = pageItems.get(i);
-            int slot = slots.get(i);
+        // 3. Display items directly, skipping any item that is no longer displayable (e.g. expired via a stale cache)
+        int slotIndex = 0;
+        for (Item item : pageItems) {
+            if (!item.isActivelyListed()) continue;
+            int slot = slots.get(slotIndex++);
             var itemStack = item.buildItemStack(player);
-            var button = inventoryEngine.addItem(slot, itemStack);
+            var button = inventoryEngine.addItem(isPlayerInventory(), slot, itemStack);
             if (button != null) {
                 button.setClick(createClick(player, inventoryEngine, slot, item, itemStack));
             }
@@ -93,18 +98,29 @@ public class ListedItemsButton extends PaginateButton {
 
         return event -> {
 
-            if (item.getStatus() != ItemStatus.AVAILABLE) {
+            // A listing may have expired while the player was browsing (expiration is processed lazily).
+            // When the listing has genuinely expired, redirect it to the expired list and refresh.
+            // We specifically check isExpired() instead of the broader isActivelyListed() here:
+            // newly created items may transiently have a non-AVAILABLE status due to async DB ops
+            // and isActivelyListed() would block the confirm inventory for those valid items.
+            if (item.isExpired() && item.getStatus() != ItemStatus.REMOVED && item.getStatus() != ItemStatus.DELETED) {
+                manager.getExpireService().processExpiredItem(item, StorageType.LISTED);
                 manager.clearPlayerCache(player, PlayerCacheKey.ITEMS_SELLING, PlayerCacheKey.ITEMS_LISTED);
                 manager.updateInventory(player);
                 return;
             }
 
+            // Apercu du contenu d'un conteneur (V3) : avant l'achat, donc sans verification
+            // d'argent ni statut de confirmation pose sur l'annonce.
+
+
             if ((event.getClick() == ClickType.DROP || event.getClick() == ClickType.MIDDLE) && player.hasPermission(Permission.ZAUCTIONHOUSE_ADMIN_REMOVE_INVENTORY.asPermission())) {
-
-                // ToDo
-
+                AdminRemoveConfirmButton.open(this.plugin, player, item);
                 return;
             }
+
+            // Container previews do not reserve the listing.
+            if (openContainerPreview(player, event, item)) return;
 
             if (item.getSellerUniqueId().equals(player.getUniqueId())) {
 
@@ -112,18 +128,7 @@ public class ListedItemsButton extends PaginateButton {
                 if (this.plugin.getConfiguration().getActions().listed().openConfirmInventory()) {
 
                     var isMultipleAuctionItem = item instanceof AuctionItem auctionItem && auctionItem.getItemStacks().size() > 1;
-
-                    var cache = manager.getCache(player);
-                    cache.set(PlayerCacheKey.ITEM_SHOW, item);
-                    cache.set(PlayerCacheKey.CURRENT_PAGE, this.plugin.getInventoriesLoader().getInventoryManager().getPage(player));
-
-                    // Notify cluster first, then update status to ensure atomicity
-                    this.plugin.getAuctionClusterBridge().notifyItemStatusChange(item, ItemStatus.AVAILABLE, ItemStatus.IS_REMOVE_CONFIRM)
-                            .thenRun(() -> {
-                                item.setStatus(ItemStatus.IS_REMOVE_CONFIRM);
-                                manager.updateListedItems(item, false, null);
-                                this.plugin.getInventoriesLoader().openInventory(player, isMultipleAuctionItem ? Inventories.REMOVE_INVENTORY_CONFIRM : Inventories.REMOVE_CONFIRM);
-                            });
+                    openConfirmation(player, item, isMultipleAuctionItem ? Inventories.REMOVE_INVENTORY_CONFIRM : Inventories.REMOVE_CONFIRM, ItemStatus.IS_REMOVE_CONFIRM, false);
                 } else {
 
                     manager.getRemoveService().removeListedItem(player, item);
@@ -137,6 +142,120 @@ public class ListedItemsButton extends PaginateButton {
                 processPurchase(player, inventoryEngine, slot, item, itemStack, inventories);
             }
         };
+    }
+
+    /**
+     * Ouvre l'apercu du contenu des conteneurs (shulkers, etc.) d'une annonce si le clic
+     * correspond a {@code action.container-preview.click}.
+     * <p>
+     * L'apercu est en lecture seule : le statut de l'annonce n'est pas modifie, elle reste
+     * achetable par les autres joueurs pendant ce temps. {@link PlayerCacheKey#ITEM_SHOW} est
+     * renseigne pour les boutons de navigation de l'inventaire d'apercu ; avec un statut
+     * AVAILABLE il n'est jamais relache par {@link ConfirmHelper}.
+     *
+     * @param player joueur qui a clique
+     * @param event  evenement de clic
+     * @param item   annonce cliquee
+     * @return {@code true} si l'apercu a ete ouvert et que le clic ne doit pas etre traite davantage
+     */
+    private boolean openContainerPreview(Player player, InventoryClickEvent event, Item item) {
+
+        var previewConfiguration = this.plugin.getConfiguration().getActions().containerPreview();
+        if (!previewConfiguration.enable() || event.getClick() != previewConfiguration.click()) return false;
+        if (!(item instanceof AuctionItem auctionItem)) return false;
+
+        var contentManager = this.plugin.getItemContentManager();
+        List<ItemStack> containers = contentManager.getContainers(auctionItem.getItemStacks());
+        if (containers.isEmpty()) return false;
+
+        var manager = this.plugin.getAuctionManager();
+        var cache = manager.getCache(player);
+
+        // Ne jamais ecraser une reference vers une annonce encore en confirmation : elle
+        // resterait figee en IS_*_CONFIRM sur tout le cluster.
+        ConfirmHelper.releaseConfirmation(this.plugin, player);
+
+        cache.set(PlayerCacheKey.ITEM_SHOW, item);
+        cache.set(PlayerCacheKey.CURRENT_PAGE, this.plugin.getInventoriesLoader().getInventoryManager().getPage(player));
+        cache.set(PlayerCacheKey.SHULKER_INDEX, 0);
+        cache.set(PlayerCacheKey.SHULKER_ITEMS, contentManager.getContents(containers.getFirst()));
+
+        this.plugin.getInventoriesLoader().openInventory(player, Inventories.SHULKER_CONTENT);
+        return true;
+    }
+
+    /**
+     * Chemin commun aux deux confirmations (retrait par le vendeur, achat par un tiers).
+     * <p>
+     * Ordre volontairement inverse par rapport au code d'origine : garde compare-and-set, pose
+     * du statut LOCAL, ecriture des caches et ouverture de la GUI de maniere SYNCHRONE sur le
+     * thread du clic, PUIS diffusion au cluster. Avant, tout cela vivait dans un {@code thenRun}
+     * execute sur ForkJoinPool.commonPool (C-048 / C-049).
+     * <p>
+     * Contrepartie assumee : si la diffusion echoue, ce serveur masque l'item alors que les
+     * autres le laissent visible — divergence inverse de celle d'aujourd'hui, mais bornee, car
+     * ConfirmHelper restaure AVAILABLE a la fermeture. On ne vend jamais deux fois localement,
+     * ce qui est le bon compromis.
+     *
+     * @param player            joueur qui vient de cliquer
+     * @param item              annonce concernee
+     * @param inventories       inventaire de confirmation a ouvrir
+     * @param confirmStatus     statut de confirmation a poser sur l'annonce
+     * @param refreshSpectators {@code true} pour retirer l'annonce des HDV deja ouverts des autres joueurs
+     */
+    private void openConfirmation(Player player, Item item, Inventories inventories, ItemStatus confirmStatus, boolean refreshSpectators) {
+
+        var scheduler = this.plugin.getScheduler();
+        if (!scheduler.isOwnedByCurrentRegion(player)) {
+            // Une implementation tierce d'AuctionEconomy peut rendre un has() reellement
+            // asynchrone : on se re-confine avant de toucher aux caches et a la GUI.
+            scheduler.runAtEntity(player, wrappedTask -> openConfirmation(player, item, inventories, confirmStatus, refreshSpectators));
+            return;
+        }
+
+        var manager = this.plugin.getAuctionManager();
+        var inventoryManager = this.plugin.getInventoriesLoader().getInventoryManager();
+        var cache = manager.getCache(player);
+
+        // Garde compare-and-set : createClick ne testait que isExpired(), jamais le statut. Le
+        // Consumer de clic d'un item engage sur un AUTRE serveur reste arme dans la GUI deja
+        // rendue, et avec update-inventory-on-action:false il n'y a jamais de rafraichissement.
+        if (item.getStatus() != ItemStatus.AVAILABLE) {
+            cache.set(PlayerCacheKey.PURCHASE_ITEM, false);
+            manager.clearPlayerCache(player, PlayerCacheKey.ITEMS_LISTED, PlayerCacheKey.ITEMS_SEARCH);
+            inventoryManager.updateInventory(player);
+            return;
+        }
+
+        // Statut et detenteur poses ATOMIQUEMENT : une remise en vente concurrente ne peut ni
+        // s'intercaler ni laisser un detenteur perime (cf. ZItem#tryReserve).
+        if (!item.tryReserve(confirmStatus, player.getUniqueId())) {
+            cache.set(PlayerCacheKey.PURCHASE_ITEM, false);
+            manager.clearPlayerCache(player, PlayerCacheKey.ITEMS_LISTED, PlayerCacheKey.ITEMS_SEARCH);
+            inventoryManager.updateInventory(player);
+            return;
+        }
+
+        cache.set(PlayerCacheKey.ITEM_SHOW, item);
+        cache.set(PlayerCacheKey.CURRENT_PAGE, inventoryManager.getPage(player));
+
+        // Le garde anti-double-clic n'est relache qu'APRES l'engagement, jamais avant.
+        cache.set(PlayerCacheKey.PURCHASE_ITEM, false);
+
+        if (refreshSpectators) {
+            manager.updateListedItems(item, false, player);
+        }
+
+        this.plugin.getInventoriesLoader().openInventory(player, inventories);
+
+        // Diffusion APRES l'engagement local : un echec de transport ne doit plus empecher
+        // l'ouverture de la GUI. Rendre cet echec bloquant est C-028 (chantier 7).
+        this.plugin.getAuctionClusterBridge()
+                .notifyItemStatusChange(item, ItemStatus.AVAILABLE, confirmStatus)
+                .exceptionally(throwable -> {
+                    this.plugin.getLogger().log(Level.WARNING, "Failed to broadcast " + confirmStatus + " for item " + item.getId(), throwable);
+                    return null;
+                });
     }
 
     /**
@@ -172,7 +291,18 @@ public class ListedItemsButton extends PaginateButton {
             return;
         }
 
-        economy.has(player.getUniqueId(), item.getPrice()).whenComplete((hasMoney, throwable) -> {
+        // Meme calcul que PurchaseService et ZAuctionManager : le prix affiche/verifie dans
+        // la GUI ne peut plus differer du prix reellement debite.
+        final BigDecimal requiredBalance;
+        try {
+            requiredBalance = ZPurchaseCharge.resolve(player, item, economy).buyerPays();
+        } catch (IllegalStateException exception) {
+            this.plugin.getLogger().severe(exception.getMessage());
+            cache.set(PlayerCacheKey.PURCHASE_ITEM, false);
+            return;
+        }
+
+        economy.has(player.getUniqueId(), requiredBalance).whenComplete((hasMoney, throwable) -> {
 
             if (throwable != null) {
                 this.plugin.getLogger().log(Level.WARNING, "Cannot verify the balance of " + player.getName(), throwable);
@@ -203,17 +333,7 @@ public class ListedItemsButton extends PaginateButton {
                 return;
             }
 
-            cache.set(PlayerCacheKey.ITEM_SHOW, item);
-            cache.set(PlayerCacheKey.CURRENT_PAGE, this.plugin.getInventoriesLoader().getInventoryManager().getPage(player));
-            cache.set(PlayerCacheKey.PURCHASE_ITEM, false);
-
-            // Notify cluster first, then update status to ensure atomicity
-            this.plugin.getAuctionClusterBridge().notifyItemStatusChange(item, ItemStatus.AVAILABLE, ItemStatus.IS_PURCHASE_CONFIRM)
-                    .thenRun(() -> {
-                        item.setStatus(ItemStatus.IS_PURCHASE_CONFIRM);
-                        manager.updateListedItems(item, false, player);
-                        this.plugin.getInventoriesLoader().openInventory(player, inventories);
-                    });
+            openConfirmation(player, item, inventories, ItemStatus.IS_PURCHASE_CONFIRM, true);
         });
     }
 
@@ -230,6 +350,12 @@ public class ListedItemsButton extends PaginateButton {
      */
     public void updateInventory(Player player, InventoryEngine inventoryEngine, Item item, boolean isAdded, AuctionManager manager) {
 
+        // C-074 : sorties precoces bon marche AVANT getItemIdsListedForSale, qui peut declencher
+        // un recalcul complet du cache joueur. La liste des slots n'est plus copiee : processAdd
+        // et processRemove ne font que la LIRE.
+        var slots = this.slots;
+        if (slots.size() <= 1) return;
+
         // Get the current page of the inventory
         int page = inventoryEngine.getPage();
 
@@ -241,12 +367,9 @@ public class ListedItemsButton extends PaginateButton {
             return;
         }
 
-        // Get the slots in the inventory
-        var slots = new ArrayList<>(getSlots());
-        if (slots.isEmpty() || slots.size() == 1) return;
-
-        // Find the index of the item ID in the list
-        int itemIndex = findIndexOf(itemIds, item.getId());
+        // Find the index of the item ID in the list (indexOf porte par IntList : plus de scan
+        // lineaire prive, C-074)
+        int itemIndex = itemIds.indexOf(item.getId());
         if (itemIndex == -1) return;
 
         // Calculate the start and end index of the items on the current page
@@ -264,7 +387,8 @@ public class ListedItemsButton extends PaginateButton {
             if (endIndex < itemIds.size()) {
                 int endItemId = itemIds.getInt(endIndex);
                 List<Item> resolved = manager.resolveItems(StorageType.LISTED, createSingleItemList(endItemId));
-                if (!resolved.isEmpty()) {
+                // Only pull the next item forward if it is still displayable (a stale cache may hand back an expired one)
+                if (!resolved.isEmpty() && resolved.getFirst().isActivelyListed()) {
                     itemToAddAtEnd = resolved.getFirst();
                 }
             }
@@ -274,22 +398,6 @@ public class ListedItemsButton extends PaginateButton {
         else {
             processAdd(item, itemIndex, startIndex, slots, inventoryEngine, player);
         }
-    }
-
-    /**
-     * Find the index of an item ID in an IntList.
-     *
-     * @param ids    the list of IDs to search
-     * @param itemId the item ID to find
-     * @return the index of the item ID, or -1 if not found
-     */
-    private int findIndexOf(IntList ids, int itemId) {
-        for (int i = 0; i < ids.size(); i++) {
-            if (ids.getInt(i) == itemId) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     /**
@@ -316,6 +424,10 @@ public class ListedItemsButton extends PaginateButton {
      * @param player          the player whose inventory to update
      */
     private void processAdd(Item item, int itemIndex, int startIndex, List<Integer> slots, InventoryEngine inventoryEngine, Player player) {
+        // Defensive R1 chokepoint: never insert an item that should not be displayed (e.g. expired) into a viewer's GUI.
+        // This also neutralizes the re-add broadcast triggered when a confirm inventory is closed/back-clicked.
+        if (!item.isActivelyListed()) return;
+
         // Get the inventory and the items stored in it
         var spigotInventory = inventoryEngine.getSpigotInventory();
         var inventoryItems = inventoryEngine.getItems();
