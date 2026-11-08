@@ -76,9 +76,7 @@ allprojects {
         implementation("fr.maxlego08.sarah:sarah:1.27")
         implementation("com.tcoded:FoliaLib:0.5.1")
         implementation("fr.traqueur.currencies:currenciesapi:1.0.14")
-        implementation("redis.clients:jedis:5.2.0") {
-            exclude(group = "org.slf4j")
-        }
+        compileOnly("redis.clients:jedis:5.2.0")
 
 //         testImplementation(platform("org.junit:junit-bom:5.11.4"))
 //         testImplementation("org.junit.jupiter:junit-jupiter")
@@ -134,8 +132,6 @@ tasks {
         relocate("com.tcoded.folialib", "fr.maxlego08.zauctionhouse.libs.folialib")
         relocate("fr.traqueur.currencies", "fr.maxlego08.zauctionhouse.libs.currencies")
         relocate("dev.faststats", "fr.maxlego08.zauctionhouse.libs.faststats")
-        relocate("redis.clients.jedis", "fr.maxlego08.zauctionhouse.libs.jedis")
-        relocate("org.apache.commons.pool2", "fr.maxlego08.zauctionhouse.libs.pool2")
 
         exclude("org/slf4j/**")
         exclude("META-INF/maven/org.slf4j/**")
